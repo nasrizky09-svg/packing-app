@@ -6,230 +6,120 @@
   <title>Dokumentasi Packing</title>
   <script src="https://unpkg.com/html5-qrcode"></script>
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 15px; text-align: center; background: #f0f2f5; }
-    .card { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); max-width: 450px; margin: auto auto 20px auto; text-align: left; }
-    .card h3 { margin-top: 0; color: #007bff; border-bottom: 2px solid #007bff; padding-bottom: 5px; font-size: 16px; }
-    video, img { width: 100%; border-radius: 8px; margin-top: 10px; background: #000; max-height: 250px; object-fit: contain; }
-    input[type="text"] { width: 93%; padding: 10px; font-size: 16px; border-radius: 6px; border: 1px solid #ccc; }
-    button { width: 100%; padding: 12px; margin-top: 10px; border: none; border-radius: 8px; font-size: 15px; font-weight: bold; color: white; cursor: pointer; }
-    button:disabled { background: #ccc !important; cursor: not-allowed; }
+    body { font-family: Arial, sans-serif; margin: 0; padding: 10px; background: #f0f2f5; padding-top: 260px; } /* Ruang untuk kamera sticky */
+    
+    /* KAMERA TETAP DI ATAS */
+    #camera-sticky { position: fixed; top: 0; left: 0; width: 100%; height: 250px; background: #000; z-index: 1000; }
+    video { width: 100%; height: 100%; object-fit: contain; }
+
+    .card { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 15px; }
+    input[type="text"] { width: 90%; padding: 10px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 6px; }
+    
+    /* TOMBOL GRID */
+    .button-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+    button { padding: 10px; border: none; border-radius: 6px; font-size: 13px; font-weight: bold; color: white; cursor: pointer; }
     .btn-green { background: #28a745; }
     .btn-red { background: #dc3545; }
     .btn-blue { background: #007bff; }
-    .status-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; background: #eee; color: #555; margin-bottom: 5px; }
-    .active-badge { background: #d4edda; color: #155724; }
-    .confirm-box { background: #e9ecef; padding: 12px; border-radius: 8px; margin-top: 15px; border: 1px solid #ced4da; }
-    .confirm-box label { font-size: 14px; font-weight: bold; color: #333; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+    .status-badge { font-size: 11px; color: #666; display: block; margin-top: 5px; }
   </style>
 </head>
 <body>
 
-  <h2>Dokumentasi Packing</h2>
-
-  <!-- MODUL 1: SCAN RESI -->
-  <div class="card">
-    <h3>1. Scan / Input Resi</h3>
-    <input type="text" id="inputResi" placeholder="Hasil Scan Resi">
-    <div id="reader" style="display:none; margin-top:10px;"></div>
-    <button class="btn-blue" onclick="startScanner()">📷 Buka Scanner Barcode</button>
-  </div>
-
-  <!-- MODUL KAMERA UTAMA (LIVE MONITOR) -->
-  <div class="card">
-    <h3>Kamera Utama (Live Monitor)</h3>
+  <!-- KAMERA TETAP DI ATAS -->
+  <div id="camera-sticky">
     <video id="preview" autoplay playsinline muted></video>
-    <button class="btn-blue" onclick="initCamera()">🔴 Aktifkan Kamera Belakang</button>
   </div>
 
-  <!-- MODUL 2: FOTO SEBELUM -->
   <div class="card">
-    <h3>2. Foto Sebelum Packing</h3>
-    <span id="badgeFotoSebelum" class="status-badge">Belum Ada Foto</span>
-    <img id="imgSebelum" style="display:none;">
-    <button class="btn-green" onclick="ambilFotoSebelum()">📸 Ambil Foto Sebelum</button>
+    <input type="text" id="inputResi" placeholder="Scan / Ketik Resi">
+    <button class="btn-blue" onclick="startScanner()" style="width:100%;">📷 Buka Scanner</button>
+    <div id="reader" style="display:none; margin-top:10px;"></div>
   </div>
 
-  <!-- MODUL 3: VIDEO PACKING -->
   <div class="card">
-    <h3>3. Rekam Video Packing</h3>
-    <span id="badgeVideo" class="status-badge">Belum Terekam</span>
-    <button id="btnRecord" class="btn-red" onclick="toggleRecord()">📹 Mulai Rekam Video</button>
-  </div>
-
-  <!-- MODUL 4: FOTO SESUDAH & KONFIRMASI -->
-  <div class="card">
-    <h3>4. Foto Sesudah & Konfirmasi Upload</h3>
-    <span id="badgeFotoSesudah" class="status-badge">Belum Ada Foto</span>
-    <img id="imgSesudah" style="display:none;">
-    <button class="btn-green" onclick="ambilFotoSesudah()">📸 Ambil Foto Sesudah</button>
-    
-    <hr style="margin-top:15px; border:0; border-top:1px solid #eee;">
-    
-    <!-- KOTAK KONFIRMASI DOKUMENTASI -->
-    <div class="confirm-box">
-      <label>
-        <input type="checkbox" id="chkConfirm" onchange="toggleUploadButton()" style="width:18px; height:18px;">
-        Saya konfirmasi dokumentasi resi, foto & video sudah lengkap.
-      </label>
+    <div class="button-grid">
+      <button class="btn-green" onclick="ambilFoto('SEBELUM')">📸 Foto Sebelum</button>
+      <button class="btn-red" id="btnRecord" onclick="toggleRecord()">📹 Rekam Video</button>
+      <button class="btn-green" onclick="ambilFoto('SESUDAH')">📸 Foto Sesudah</button>
     </div>
+    <div id="status-panel" style="margin-top:10px; font-size:12px;">
+      <span id="statSebelum">Foto Sebelum: -</span><br>
+      <span id="statVideo">Video: -</span><br>
+      <span id="statSesudah">Foto Sesudah: -</span>
+    </div>
+  </div>
 
-    <!-- TOMBOL UPLOAD (LOCKED BY DEFAULT) -->
-    <button id="btnUpload" class="btn-blue" style="background:#17a2b8;" onclick="uploadSemuaData()" disabled>☁️ Upload Dokumentasi ke Google Drive</button>
+  <div class="card">
+    <label style="font-size: 13px;"><input type="checkbox" id="chkConfirm" onchange="document.getElementById('btnUpload').disabled = !this.checked"> Dokumentasi lengkap.</label>
+    <button id="btnUpload" class="btn-blue" style="background:#17a2b8; margin-top:10px;" onclick="uploadSemuaData()" disabled>☁️ Upload ke Drive</button>
   </div>
 
 <script>
-  // PASTE URL GOOGLE APPS SCRIPT KAMU DI SINI
-  const GAS_URL = "https://script.google.com/macros/s/AKfycbyzXvNdJ4grCNrXIU-YG5gYCK0pd-jYIxvvnCbwHfXrZScnc7OoXc_v_ca5uBF16KQ/exec";
-
+  const GAS_URL = "https://script.google.com/macros/s/AKfycbyzXvNdJ4grCNrXIU-YG5gYCK0pd-jYIxvvnCbwHfXrZScnc7OoXc_v_ca5uBF16KQ/exec"; // <-- GANTI INI
   let fotoSebelum = "", videoPacking = "", fotoSesudah = "";
-  let mediaRecorder, recordedChunks = [];
-  let isRecording = false;
+  let mediaRecorder, recordedChunks = [], isRecording = false;
 
-  // 1. KAMERA LIVE
   async function initCamera() {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: { ideal: "environment" } }, 
-        audio: false 
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
       document.getElementById('preview').srcObject = stream;
-    } catch (err) {
-      alert("Gagal mengaktifkan kamera: " + err.message);
-    }
+    } catch (e) { alert("Kamera gagal: " + e.message); }
   }
+  
+  window.onload = initCamera;
 
-  // 2. SCANNER RESI
   function startScanner() {
     document.getElementById('reader').style.display = 'block';
-    const html5QrCode = new Html5Qrcode("reader");
-    html5QrCode.start(
-      { facingMode: "environment" }, 
-      { fps: 10, qrbox: 250 }, 
-      (text) => {
-        document.getElementById('inputResi').value = text;
-        html5QrCode.stop().then(() => {
-          document.getElementById('reader').style.display = 'none';
-        });
-      }
-    ).catch(err => alert("Gagal scan: " + err));
-  }
-
-  // 3. FOTO SEBELUM
-  function ambilFotoSebelum() {
-    fotoSebelum = captureFrame();
-    const img = document.getElementById('imgSebelum');
-    img.src = fotoSebelum;
-    img.style.display = 'block';
-    
-    const badge = document.getElementById('badgeFotoSebelum');
-    badge.innerText = "✓ Foto Berhasil Ditangkap";
-    badge.className = "status-badge active-badge";
-  }
-
-  // 4. VIDEO PACKING
-  function toggleRecord() {
-    const btn = document.getElementById('btnRecord');
-    const badge = document.getElementById('badgeVideo');
-
-    if (!isRecording) {
-      recordedChunks = [];
-      const stream = document.getElementById('preview').srcObject;
-      if (!stream) return alert("Aktifkan kamera utama terlebih dahulu!");
-
-      mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
-      mediaRecorder.ondataavailable = e => { if(e.data.size > 0) recordedChunks.push(e.data); };
-      mediaRecorder.start();
-
-      isRecording = true;
-      btn.innerText = "⏹ Selesai Rekam Video";
-      badge.innerText = "🔴 Sedang Merekam...";
-      badge.className = "status-badge active-badge";
-    } else {
-      mediaRecorder.stop();
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(recordedChunks, { type: 'video/webm' });
-        const reader = new FileReader();
-        reader.readAsDataURL(blob);
-        reader.onloadend = () => {
-          videoPacking = reader.result;
-          badge.innerText = "✓ Video Berhasil Terekam";
-        };
-      };
-      isRecording = false;
-      btn.innerText = "📹 Rekam Ulang Video";
-    }
-  }
-
-  // 5. FOTO SESUDAH
-  function ambilFotoSesudah() {
-    fotoSesudah = captureFrame();
-    const img = document.getElementById('imgSesudah');
-    img.src = fotoSesudah;
-    img.style.display = 'block';
-
-    const badge = document.getElementById('badgeFotoSesudah');
-    badge.innerText = "✓ Foto Berhasil Ditangkap";
-    badge.className = "status-badge active-badge";
-  }
-
-  // 6. TOGGLE TOMBOL UPLOAD
-  function toggleUploadButton() {
-    const chk = document.getElementById('chkConfirm');
-    const btn = document.getElementById('btnUpload');
-    btn.disabled = !chk.checked;
-  }
-
-  // 7. UPLOAD SEMUA DATA
-  function uploadSemuaData() {
-    const resi = document.getElementById('inputResi').value.trim();
-    if (!resi) return alert("Nomor resi belum diisi!");
-    if (!fotoSebelum) return alert("Foto sebelum packing belum diambil!");
-    if (!videoPacking) return alert("Video packing belum direkam!");
-    if (!fotoSesudah) return alert("Foto sesudah packing belum diambil!");
-
-    const btn = document.getElementById('btnUpload');
-    btn.innerText = "⏳ Sedang Mengunggah ke Google Drive...";
-    btn.disabled = true;
-
-    fetch(GAS_URL, {
-      method: "POST",
-      body: JSON.stringify({
-        resi: resi,
-        fotoSebelum: fotoSebelum,
-        videoPacking: videoPacking,
-        fotoSesudah: fotoSesudah
-      })
-    })
-    .then(res => res.json())
-    .then(res => {
-      if (res.status === "success") {
-        alert("✅ Berhasil menyimpan semua dokumentasi ke Google Drive!");
-        location.reload();
-      } else {
-        alert("❌ Gagal menyimpan: " + res.message);
-        btn.innerText = "☁️ Upload Dokumentasi ke Google Drive";
-        btn.disabled = false;
-      }
-    })
-    .catch(err => {
-      alert("❌ Error jaringan: " + err);
-      btn.innerText = "☁️ Upload Dokumentasi ke Google Drive";
-      btn.disabled = false;
+    const scanner = new Html5Qrcode("reader");
+    scanner.start({ facingMode: "environment" }, { fps: 10, qrbox: 250, formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE, Html5QrcodeSupportedFormats.CODE_128] }, (t) => {
+      document.getElementById('inputResi').value = t;
+      scanner.stop().then(() => document.getElementById('reader').style.display = 'none');
     });
   }
 
-  // UTILS
   function captureFrame() {
-    const video = document.getElementById('preview');
-    const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext('2d').drawImage(video, 0, 0);
-    return canvas.toDataURL('image/jpeg', 0.8);
+    const v = document.getElementById('preview');
+    const c = document.createElement('canvas');
+    c.width = v.videoWidth; c.height = v.videoHeight;
+    c.getContext('2d').drawImage(v, 0, 0);
+    return c.toDataURL('image/jpeg', 0.7);
   }
 
-  // Otomatis jalankan kamera saat web dibuka
-  window.onload = initCamera;
+  function ambilFoto(type) {
+    if(type === 'SEBELUM') { fotoSebelum = captureFrame(); document.getElementById('statSebelum').innerText = "Foto Sebelum: ✅"; }
+    else { fotoSesudah = captureFrame(); document.getElementById('statSesudah').innerText = "Foto Sesudah: ✅"; }
+  }
+
+  function toggleRecord() {
+    const btn = document.getElementById('btnRecord');
+    if (!isRecording) {
+      recordedChunks = [];
+      mediaRecorder = new MediaRecorder(document.getElementById('preview').srcObject, { mimeType: 'video/webm' });
+      mediaRecorder.ondataavailable = e => { if(e.data.size > 0) recordedChunks.push(e.data); };
+      mediaRecorder.start();
+      isRecording = true;
+      btn.innerText = "⏹ Stop Rekam"; btn.className = "btn-red";
+    } else {
+      mediaRecorder.stop();
+      mediaRecorder.onstop = () => {
+        new Blob(recordedChunks, {type: 'video/webm'}).arrayBuffer().then(buf => {
+          videoPacking = "data:video/webm;base64," + btoa(String.fromCharCode(...new Uint8Array(buf)));
+          document.getElementById('statVideo').innerText = "Video: ✅";
+        });
+      };
+      isRecording = false; btn.innerText = "📹 Rekam Video"; btn.className = "btn-red";
+    }
+  }
+
+  function uploadSemuaData() {
+    const resi = document.getElementById('inputResi').value.trim();
+    if (!resi || !fotoSebelum || !videoPacking || !fotoSesudah) return alert("Lengkapi semua data!");
+    
+    document.getElementById('btnUpload').disabled = true;
+    fetch(GAS_URL, { method: "POST", body: JSON.stringify({ resi, fotoSebelum, videoPacking, fotoSesudah }) })
+    .then(r => r.json()).then(r => { alert("Sukses!"); location.reload(); });
+  }
 </script>
 </body>
 </html>
