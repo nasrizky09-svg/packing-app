@@ -6,16 +6,17 @@
   <title>Dokumentasi Packing</title>
   <script src="https://unpkg.com/html5-qrcode"></script>
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 10px; background: #f0f2f5; padding-top: 260px; } /* Ruang untuk kamera sticky */
+    body { font-family: Arial, sans-serif; margin: 0; padding: 10px; background: #f0f2f5; padding-top: 360px; } 
     
-    /* KAMERA TETAP DI ATAS */
-    #camera-sticky { position: fixed; top: 0; left: 0; width: 100%; height: 250px; background: #000; z-index: 1000; }
+    /* KAMERA STICKY (LEBIH BESAR) */
+    #camera-sticky { position: fixed; top: 0; left: 0; width: 100%; height: 350px; background: #000; z-index: 1000; }
     video { width: 100%; height: 100%; object-fit: contain; }
+    
+    /* TIMER */
+    #timer { position: absolute; bottom: 10px; right: 10px; background: rgba(255,0,0,0.7); color: white; padding: 5px 10px; border-radius: 5px; font-family: monospace; font-size: 16px; display: none; }
 
     .card { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 15px; }
-    input[type="text"] { width: 90%; padding: 10px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 6px; }
-    
-    /* TOMBOL GRID */
+    input[type="text"] { width: 93%; padding: 10px; font-size: 16px; border-radius: 6px; border: 1px solid #ccc; }
     .button-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
     button { padding: 10px; border: none; border-radius: 6px; font-size: 13px; font-weight: bold; color: white; cursor: pointer; }
     .btn-green { background: #28a745; }
@@ -29,11 +30,12 @@
   <!-- KAMERA TETAP DI ATAS -->
   <div id="camera-sticky">
     <video id="preview" autoplay playsinline muted></video>
+    <div id="timer">00:00</div>
   </div>
 
   <div class="card">
     <input type="text" id="inputResi" placeholder="Scan / Ketik Resi">
-    <button class="btn-blue" onclick="startScanner()" style="width:100%;">📷 Buka Scanner</button>
+    <button class="btn-blue" onclick="startScanner()" style="width:100%; margin-top:10px;">📷 Buka Scanner Barcode</button>
     <div id="reader" style="display:none; margin-top:10px;"></div>
   </div>
 
@@ -51,14 +53,14 @@
   </div>
 
   <div class="card">
-    <label style="font-size: 13px;"><input type="checkbox" id="chkConfirm" onchange="document.getElementById('btnUpload').disabled = !this.checked"> Dokumentasi lengkap.</label>
+    <label style="font-size: 13px;"><input type="checkbox" id="chkConfirm" onchange="document.getElementById('btnUpload').disabled = !this.checked"> Data sudah lengkap.</label>
     <button id="btnUpload" class="btn-blue" style="background:#17a2b8; margin-top:10px;" onclick="uploadSemuaData()" disabled>☁️ Upload ke Drive</button>
   </div>
 
 <script>
   const GAS_URL = "https://script.google.com/macros/s/AKfycbyzXvNdJ4grCNrXIU-YG5gYCK0pd-jYIxvvnCbwHfXrZScnc7OoXc_v_ca5uBF16KQ/exec"; // <-- GANTI INI
-  let fotoSebelum = "", videoPacking = "", fotoSesudah = "";
-  let mediaRecorder, recordedChunks = [], isRecording = false;
+  let fotoSebelum = "", videoPacking = "", fotoSesudah = "", isRecording = false;
+  let mediaRecorder, recordedChunks = [], seconds = 0, timerInterval;
 
   async function initCamera() {
     try {
@@ -72,10 +74,45 @@
   function startScanner() {
     document.getElementById('reader').style.display = 'block';
     const scanner = new Html5Qrcode("reader");
-    scanner.start({ facingMode: "environment" }, { fps: 10, qrbox: 250, formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE, Html5QrcodeSupportedFormats.CODE_128] }, (t) => {
+    scanner.start({ facingMode: "environment" }, { 
+      fps: 10, qrbox: 250, 
+      formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE, Html5QrcodeSupportedFormats.CODE_128] 
+    }, (t) => {
       document.getElementById('inputResi').value = t;
       scanner.stop().then(() => document.getElementById('reader').style.display = 'none');
     });
+  }
+
+  function toggleRecord() {
+    const btn = document.getElementById('btnRecord');
+    const timerDiv = document.getElementById('timer');
+    if (!isRecording) {
+      recordedChunks = []; seconds = 0;
+      timerDiv.style.display = 'block';
+      timerDiv.innerText = "00:00";
+      timerInterval = setInterval(() => {
+        seconds++;
+        const m = Math.floor(seconds/60).toString().padStart(2,'0');
+        const s = (seconds%60).toString().padStart(2,'0');
+        timerDiv.innerText = `${m}:${s}`;
+      }, 1000);
+      
+      mediaRecorder = new MediaRecorder(document.getElementById('preview').srcObject, { mimeType: 'video/webm' });
+      mediaRecorder.ondataavailable = e => { if(e.data.size > 0) recordedChunks.push(e.data); };
+      mediaRecorder.start();
+      isRecording = true; btn.innerText = "⏹ Stop Rekam";
+    } else {
+      mediaRecorder.stop();
+      clearInterval(timerInterval);
+      timerDiv.style.display = 'none';
+      mediaRecorder.onstop = () => {
+        new Blob(recordedChunks, {type: 'video/webm'}).arrayBuffer().then(buf => {
+          videoPacking = "data:video/webm;base64," + btoa(String.fromCharCode(...new Uint8Array(buf)));
+          document.getElementById('statVideo').innerText = "Video: ✅";
+        });
+      };
+      isRecording = false; btn.innerText = "📹 Rekam Video";
+    }
   }
 
   function captureFrame() {
@@ -91,31 +128,9 @@
     else { fotoSesudah = captureFrame(); document.getElementById('statSesudah').innerText = "Foto Sesudah: ✅"; }
   }
 
-  function toggleRecord() {
-    const btn = document.getElementById('btnRecord');
-    if (!isRecording) {
-      recordedChunks = [];
-      mediaRecorder = new MediaRecorder(document.getElementById('preview').srcObject, { mimeType: 'video/webm' });
-      mediaRecorder.ondataavailable = e => { if(e.data.size > 0) recordedChunks.push(e.data); };
-      mediaRecorder.start();
-      isRecording = true;
-      btn.innerText = "⏹ Stop Rekam"; btn.className = "btn-red";
-    } else {
-      mediaRecorder.stop();
-      mediaRecorder.onstop = () => {
-        new Blob(recordedChunks, {type: 'video/webm'}).arrayBuffer().then(buf => {
-          videoPacking = "data:video/webm;base64," + btoa(String.fromCharCode(...new Uint8Array(buf)));
-          document.getElementById('statVideo').innerText = "Video: ✅";
-        });
-      };
-      isRecording = false; btn.innerText = "📹 Rekam Video"; btn.className = "btn-red";
-    }
-  }
-
   function uploadSemuaData() {
     const resi = document.getElementById('inputResi').value.trim();
-    if (!resi || !fotoSebelum || !videoPacking || !fotoSesudah) return alert("Lengkapi semua data!");
-    
+    if (!resi || !fotoSebelum || !videoPacking || !fotoSesudah) return alert("Lengkapi data!");
     document.getElementById('btnUpload').disabled = true;
     fetch(GAS_URL, { method: "POST", body: JSON.stringify({ resi, fotoSebelum, videoPacking, fotoSesudah }) })
     .then(r => r.json()).then(r => { alert("Sukses!"); location.reload(); });
