@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dokumentasi Packing</title>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 15px; text-align: center; background: #f0f2f5; }
+    .card { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); max-width: 450px; margin: auto; }
+    video { width: 100%; border-radius: 8px; margin-top: 10px; background: #000; max-height: 350px; object-fit: contain; }
+    button { width: 100%; padding: 15px; margin-top: 15px; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; color: white; cursor: pointer; }
+    .btn-green { background: #28a745; }
+    .btn-red { background: #dc3545; }
+    .btn-blue { background: #007bff; }
+    #status { margin-top: 15px; font-weight: bold; color: #333; font-size: 16px; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <h2>Dokumentasi Packing</h2>
+  <div id="status">Langkah 1: Scan / Input Resi</div>
+
+  <div id="sec-resi">
+    <input type="text" id="inputResi" placeholder="Ketik / Scan Resi" style="width:90%; padding:12px; margin-bottom:10px; font-size:16px;">
+    <div id="reader" style="display:none;"></div>
+    <button class="btn-blue" onclick="startScanner()">📷 Buka Kamera Scan Barcode</button>
+  </div>
+
+  <div id="sec-kamera" style="display:none;">
+    <video id="preview" autoplay playsinline muted></video>
+  </div>
+
+  <button id="btnAction" class="btn-green" style="display:none;"></button>
+</div>
+
+<script>
+  // TEMPELKAN WEB APP URL DARI GOOGLE APPS SCRIPT DI BAWAH INI
+  const GAS_URL = "https://script.google.com/macros/s/AKfycbyzXvNdJ4grCNrXIU-YG5gYCK0pd-jYIxvvnCbwHfXrZScnc7OoXc_v_ca5uBF16KQ/exec";
+
+  let resi = "", fotoSebelum = "", videoPacking = "", fotoSesudah = "";
+  let mediaRecorder, recordedChunks = [];
+  let html5QrCode;
+
+  function startScanner() {
+    document.getElementById('reader').style.display = 'block';
+    html5QrCode = new Html5Qrcode("reader");
+    html5QrCode.start(
+      { facingMode: "environment" }, 
+      { fps: 10, qrbox: 250 }, 
+      (text) => {
+        document.getElementById('inputResi').value = text;
+        html5QrCode.stop().then(() => {
+          document.getElementById('reader').style.display = 'none';
+          lanjutKeFotoSebelum();
+        });
+      }
+    ).catch(err => alert("Gagal buka scanner: " + err));
+  }
+
+  document.getElementById('inputResi').addEventListener('change', function() {
+    if(this.value.trim() !== "") lanjutKeFotoSebelum();
+  });
+
+  async function lanjutKeFotoSebelum() {
+    resi = document.getElementById('inputResi').value.trim();
+    if (!resi) return alert("Isi nomor resi!");
+    
+    document.getElementById('sec-resi').style.display = 'none';
+    document.getElementById('sec-kamera').style.display = 'block';
+    
+    await initCamera();
+    document.getElementById('status').innerText = "Langkah 2: Foto SEBELUM Packing";
+    
+    const btn = document.getElementById('btnAction');
+    btn.style.display = 'block';
+    btn.className = 'btn-green';
+    btn.innerText = "📸 Ambil Foto Sebelum";
+    btn.onclick = () => {
+      fotoSebelum = captureFrame();
+      lanjutKeVideo();
+    };
+  }
+
+  function lanjutKeVideo() {
+    document.getElementById('status').innerText = "Langkah 3: Merekam Video Packing...";
+    const btn = document.getElementById('btnAction');
+    btn.className = 'btn-red';
+    btn.innerText = "🔴 Selesai Rekam Packing";
+    
+    recordedChunks = [];
+    const stream = document.getElementById('preview').srcObject;
+    mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+    mediaRecorder.ondataavailable = e => { if(e.data.size > 0) recordedChunks.push(e.data); };
+    mediaRecorder.start();
+
+    btn.onclick = () => {
+      mediaRecorder.stop();
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(recordedChunks, { type: 'video/webm' });
+        const reader = new FileReader();
+        reader.readAsDataURL(blob);
+        reader.onloadend = () => {
+          videoPacking = reader.result;
+          lanjutKeFotoSesudah();
+        };
+      };
+    };
+  }
+
+  function lanjutKeFotoSesudah() {
+    document.getElementById('status').innerText = "Langkah 4: Foto SESUDAH Packing";
+    const btn = document.getElementById('btnAction');
+    btn.className = 'btn-green';
+    btn.innerText = "📸 Ambil Foto Sesudah & Upload";
+    btn.onclick = uploadSemua;
+  }
+
+  function uploadSemua() {
+    fotoSesudah = captureFrame();
+    document.getElementById('status').innerText = "⏳ Mengunggah ke Google Drive...";
+    document.getElementById('btnAction').style.display = 'none';
+
+    fetch(GAS_URL, {
+      method: "POST",
+      body: JSON.stringify({
+        resi: resi,
+        fotoSebelum: fotoSebelum,
+        videoPacking: videoPacking,
+        fotoSesudah: fotoSesudah
+      })
+    })
+    .then(res => res.json())
+    .then(res => {
+      if(res.status === "success") {
+        alert("✅ Berhasil tersimpan di Google Drive!");
+        location.reload();
+      } else {
+        alert("❌ Gagal: " + res.message);
+        document.getElementById('btnAction').style.display = 'block';
+      }
+    })
+    .catch(err => {
+      alert("❌ Error unggah: " + err);
+      document.getElementById('btnAction').style.display = 'block';
+    });
+  }
+
+  async function initCamera() {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+    document.getElementById('preview').srcObject = stream;
+  }
+
+  function captureFrame() {
+    const video = document.getElementById('preview');
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    return canvas.toDataURL('image/jpeg', 0.8);
+  }
+</script>
+</body>
+</html>
