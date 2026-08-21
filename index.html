@@ -8,27 +8,27 @@
   <style>
     body { font-family: Arial, sans-serif; margin: 0; padding: 10px; background: #f0f2f5; padding-top: 360px; } 
     
-    /* KAMERA STICKY DI ATAS */
+    /* KAMERA STICKY */
     #camera-sticky { position: fixed; top: 0; left: 0; width: 100%; height: 350px; background: #000; z-index: 1000; }
     video { width: 100%; height: 100%; object-fit: contain; }
-    
-    /* TIMER */
     #timer { position: absolute; bottom: 10px; right: 10px; background: rgba(255,0,0,0.7); color: white; padding: 5px 10px; border-radius: 5px; font-family: monospace; font-size: 16px; display: none; }
 
     .card { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 15px; }
     input[type="text"] { width: 93%; padding: 10px; font-size: 16px; border-radius: 6px; border: 1px solid #ccc; }
-    .button-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
-    button { padding: 10px; border: none; border-radius: 6px; font-size: 13px; font-weight: bold; color: white; cursor: pointer; }
+    
+    /* 3 TOMBOL DALAM 1 BARIS */
+    .button-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; margin-top: 10px; }
+    button { padding: 10px 5px; border: none; border-radius: 6px; font-size: 11px; font-weight: bold; color: white; cursor: pointer; }
     button:disabled { background: #ccc !important; }
     .btn-green { background: #28a745; }
     .btn-red { background: #dc3545; }
     .btn-blue { background: #007bff; }
-    .status-badge { font-size: 11px; color: #333; display: block; margin-top: 5px; font-weight: bold; }
+    
+    .status-badge { font-size: 11px; color: #333; display: block; margin-top: 8px; font-weight: bold; }
   </style>
 </head>
 <body>
 
-  <!-- KAMERA TETAP DI ATAS -->
   <div id="camera-sticky">
     <video id="preview" autoplay playsinline muted></video>
     <div id="timer">00:00</div>
@@ -36,32 +36,32 @@
 
   <div class="card">
     <input type="text" id="inputResi" placeholder="Scan / Ketik Resi">
-    <button class="btn-blue" onclick="startScanner()" style="width:100%; margin-top:10px;">📷 Buka Scanner Barcode</button>
+    <button class="btn-blue" onclick="startScanner()" style="width:100%; margin-top:10px;">📷 Buka Scanner</button>
     <div id="reader" style="display:none; margin-top:10px;"></div>
   </div>
 
   <div class="card">
+    <!-- 3 TOMBOL DALAM SATU BARIS -->
     <div class="button-grid">
-      <button class="btn-green" onclick="ambilFoto('SEBELUM')">📸 Foto Sebelum</button>
-      <button class="btn-red" id="btnRecord" onclick="toggleRecord()">📹 Rekam Video</button>
-      <button class="btn-green" onclick="ambilFoto('SESUDAH')">📸 Foto Sesudah</button>
+      <button class="btn-green" onclick="ambilFoto('SEBELUM')">Foto Sblm</button>
+      <button class="btn-red" id="btnRecord" onclick="toggleRecord()">Rekam</button>
+      <button class="btn-green" onclick="ambilFoto('SESUDAH')">Foto Sdh</button>
     </div>
+    
     <div id="status-panel" style="margin-top:10px; font-size:12px;">
-      <span id="statSebelum">Foto Sebelum: ❌</span><br>
-      <span id="statVideo">Video: ❌</span><br>
+      <span id="statSebelum">Foto Sebelum: ❌</span> | 
+      <span id="statVideo">Video: ❌</span> | 
       <span id="statSesudah">Foto Sesudah: ❌</span>
     </div>
   </div>
 
   <div class="card">
-    <label style="font-size: 13px;"><input type="checkbox" id="chkConfirm" onchange="document.getElementById('btnUpload').disabled = !this.checked"> Dokumentasi sudah lengkap & benar.</label>
+    <label style="font-size: 13px;"><input type="checkbox" id="chkConfirm" onchange="document.getElementById('btnUpload').disabled = !this.checked"> Dokumentasi lengkap.</label>
     <button id="btnUpload" class="btn-blue" style="background:#17a2b8; margin-top:10px;" onclick="uploadSemuaData()" disabled>☁️ Upload ke Drive</button>
   </div>
 
 <script>
-  // --- GANTI URL DI BAWAH INI DENGAN WEB APP URL GOOGLE APPS SCRIPT KAMU ---
-  const GAS_URL = "https://script.google.com/macros/s/AKfycbyzXvNdJ4grCNrXIU-YG5gYCK0pd-jYIxvvnCbwHfXrZScnc7OoXc_v_ca5uBF16KQ/exec"; 
-
+  const GAS_URL = "https://script.google.com/macros/s/AKfycbyzXvNdJ4grCNrXIU-YG5gYCK0pd-jYIxvvnCbwHfXrZScnc7OoXc_v_ca5uBF16KQ/exec"; // <-- GANTI INI
   let fotoSebelum = "", videoPacking = "", fotoSesudah = "", isRecording = false;
   let mediaRecorder, recordedChunks = [], seconds = 0, timerInterval;
 
@@ -91,23 +91,19 @@
     const timerDiv = document.getElementById('timer');
     if (!isRecording) {
       recordedChunks = []; seconds = 0;
-      timerDiv.style.display = 'block';
-      timerDiv.innerText = "00:00";
+      timerDiv.style.display = 'block'; timerDiv.innerText = "00:00";
       timerInterval = setInterval(() => {
         seconds++;
-        const m = Math.floor(seconds/60).toString().padStart(2,'0');
-        const s = (seconds%60).toString().padStart(2,'0');
-        timerDiv.innerText = `${m}:${s}`;
+        timerDiv.innerText = `${Math.floor(seconds/60).toString().padStart(2,'0')}:${(seconds%60).toString().padStart(2,'0')}`;
       }, 1000);
       
       mediaRecorder = new MediaRecorder(document.getElementById('preview').srcObject, { mimeType: 'video/webm' });
       mediaRecorder.ondataavailable = e => { if(e.data.size > 0) recordedChunks.push(e.data); };
       mediaRecorder.start();
-      isRecording = true; btn.innerText = "⏹ Stop Rekam";
+      isRecording = true; btn.innerText = "Stop";
     } else {
       mediaRecorder.stop();
-      clearInterval(timerInterval);
-      timerDiv.style.display = 'none';
+      clearInterval(timerInterval); timerDiv.style.display = 'none';
       mediaRecorder.onstop = () => {
         const blob = new Blob(recordedChunks, { type: 'video/webm' });
         const reader = new FileReader();
@@ -117,7 +113,7 @@
           document.getElementById('statVideo').innerText = "Video: ✅";
         };
       };
-      isRecording = false; btn.innerText = "📹 Rekam Video";
+      isRecording = false; btn.innerText = "Rekam";
     }
   }
 
@@ -139,7 +135,7 @@
     if (!resi || !fotoSebelum || !videoPacking || !fotoSesudah) return alert("Pastikan semua data sudah terisi!");
     
     document.getElementById('btnUpload').disabled = true;
-    document.getElementById('btnUpload').innerText = "⏳ Sedang Mengunggah...";
+    document.getElementById('btnUpload').innerText = "Mengunggah...";
     
     fetch(GAS_URL, { method: "POST", body: JSON.stringify({ resi, fotoSebelum, videoPacking, fotoSesudah }) })
     .then(r => r.json()).then(r => { 
