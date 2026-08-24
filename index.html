@@ -26,7 +26,7 @@
     
     /* PROGRESS BAR STYLING */
     #progress-container { width: 100%; background-color: #e0e0e0; border-radius: 6px; margin-top: 10px; display: none; overflow: hidden; }
-    #progress-bar { width: 0%; height: 20px; background-color: #28a745; text-align: center; line-height: 20px; color: white; font-size: 11px; font-weight: bold; transition: width 0.4s ease; }
+    #progress-bar { width: 0%; height: 22px; background-color: #28a745; text-align: center; line-height: 22px; color: white; font-size: 11px; font-weight: bold; transition: width 0.4s ease; }
   </style>
 </head>
 <body>
@@ -62,7 +62,7 @@
     <button id="btnUpload" class="btn-blue" style="background:#17a2b8; margin-top:10px;" onclick="uploadSemuaData()" disabled>☁️ Upload ke Drive</button>
     
     <div id="progress-container">
-      <div id="progress-bar">0%</div>
+      <div id="progress-bar">0% (0 detik)</div>
     </div>
   </div>
 
@@ -70,9 +70,11 @@
   const GAS_URL = "https://script.google.com/macros/s/AKfycbyzXvNdJ4grCNrXIU-YG5gYCK0pd-jYIxvvnCbwHfXrZScnc7OoXc_v_ca5uBF16KQ/exec"; // <-- GANTI INI DENGAN URL GAS KAMU
   let fotoSebelum = "", videoPacking = "", fotoSesudah = "", isRecording = false;
   let mediaRecorder, recordedChunks = [], seconds = 0, timerInterval;
+  let canvasStream, videoCanvas, canvasCtx;
 
   async function initCamera() {
     try {
+      // Kamera utama diset 1080p Full HD khusus untuk FOTO yang super tajam
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
           facingMode: { ideal: "environment" },
@@ -102,6 +104,8 @@
   function toggleRecord() {
     const btn = document.getElementById('btnRecord');
     const timerDiv = document.getElementById('timer');
+    const videoElement = document.getElementById('preview');
+
     if (!isRecording) {
       recordedChunks = []; seconds = 0;
       timerDiv.style.display = 'block'; timerDiv.innerText = "00:00";
@@ -110,23 +114,42 @@
         timerDiv.innerText = `${Math.floor(seconds/60).toString().padStart(2,'0')}:${(seconds%60).toString().padStart(2,'0')}`;
       }, 1000);
       
+      // MEMBUAT CANVAS TERSEMBUNYI UNTUK DOWNSIZE VIDEO KE 480P (854x480)
+      videoCanvas = document.createElement('canvas');
+      videoCanvas.width = 854;
+      videoCanvas.height = 480;
+      canvasCtx = videoCanvas.getContext('2d');
+
+      // Fungsi untuk terus menyalin gambar dari video 1080p ke canvas 480p secara real-time
+      function drawVideoToCanvas() {
+        if (!isRecording) return;
+        canvasCtx.drawImage(videoElement, 0, 0, videoCanvas.width, videoCanvas.height);
+        requestAnimationFrame(drawVideoToCanvas);
+      }
+      
+      // Ambil stream dari canvas yang ukurannya sudah 480p
+      canvasStream = videoCanvas.captureStream(30); // 30 FPS
+      requestAnimationFrame(drawVideoToCanvas);
+
       const options = {
         mimeType: 'video/webm',
-        videoBitsPerSecond: 350000 // Standar kompresi optimal agar video awet & ukuran file ringan
+        videoBitsPerSecond: 600000 // Bitrate 600 kbps untuk kualitas stabil di 480p
       };
 
       try {
-        mediaRecorder = new MediaRecorder(document.getElementById('preview').srcObject, options);
+        mediaRecorder = new MediaRecorder(canvasStream, options);
       } catch (e) {
-        mediaRecorder = new MediaRecorder(document.getElementById('preview').srcObject);
+        mediaRecorder = new MediaRecorder(canvasStream);
       }
 
       mediaRecorder.ondataavailable = e => { if(e.data.size > 0) recordedChunks.push(e.data); };
       mediaRecorder.start();
       isRecording = true; btn.innerText = "Stop";
     } else {
+      isRecording = false; // Menghentikan loop canvasStream
       mediaRecorder.stop();
       clearInterval(timerInterval); timerDiv.style.display = 'none';
+      
       mediaRecorder.onstop = () => {
         const blob = new Blob(recordedChunks, { type: 'video/webm' });
         const reader = new FileReader();
@@ -136,16 +159,17 @@
           document.getElementById('statVideo').innerText = "Video: ✅";
         };
       };
-      isRecording = false; btn.innerText = "Rekam";
+      btn.innerText = "Rekam";
     }
   }
 
   function captureFrame() {
     const v = document.getElementById('preview');
     const c = document.createElement('canvas');
-    c.width = v.videoWidth; c.height = v.videoHeight;
+    c.width = v.videoWidth; // Mengambil ukuran asli 1080p
+    c.height = v.videoHeight;
     c.getContext('2d').drawImage(v, 0, 0);
-    return c.toDataURL('image/jpeg', 0.95); // Kualitas foto tajam 95%
+    return c.toDataURL('image/jpeg', 0.95); // Hasil Foto Tetap 1080p Super Tajam
   }
 
   function ambilFoto(type) {
@@ -163,15 +187,20 @@
     const pBar = document.getElementById('progress-bar');
     pContainer.style.display = 'block';
     
+    let uploadSeconds = 0;
     let progress = 10;
     pBar.style.width = progress + '%';
-    pBar.innerText = progress + '%';
+    pBar.innerText = `${progress}% (${uploadSeconds} dtk)`;
     
+    let uploadTimer = setInterval(() => {
+      uploadSeconds++;
+    }, 1000);
+
     let intervalSimulasi = setInterval(() => {
       if (progress < 90) {
         progress += 10;
         pBar.style.width = progress + '%';
-        pBar.innerText = progress + '%';
+        pBar.innerText = `${progress}% (${uploadSeconds} dtk)`;
       }
     }, 300);
 
@@ -179,12 +208,15 @@
     .then(r => r.json())
     .then(r => { 
         clearInterval(intervalSimulasi);
+        clearInterval(uploadTimer);
         pBar.style.width = '100%';
-        pBar.innerText = '100%';
+        pBar.innerText = `100% (${uploadSeconds} dtk) - Selesai!`;
         
         if(r.status === "success") { 
-            alert("✅ Berhasil tersimpan di Google Drive!"); 
-            location.reload(); 
+            setTimeout(() => {
+                alert("✅ Berhasil tersimpan di Google Drive!"); 
+                location.reload(); 
+            }, 500);
         } else { 
             alert("❌ Gagal: " + r.message); 
             resetUploadUI();
@@ -192,6 +224,7 @@
     })
     .catch(err => {
         clearInterval(intervalSimulasi);
+        clearInterval(uploadTimer);
         alert("❌ Terjadi kesalahan jaringan: " + err);
         resetUploadUI();
     });
