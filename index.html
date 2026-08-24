@@ -24,7 +24,9 @@
     .btn-red { background: #dc3545; }
     .btn-blue { background: #007bff; }
     
-    .status-badge { font-size: 11px; color: #333; display: block; margin-top: 8px; font-weight: bold; }
+    /* PROGRESS BAR STYLING */
+    #progress-container { width: 100%; background-color: #e0e0e0; border-radius: 6px; margin-top: 10px; display: none; overflow: hidden; }
+    #progress-bar { width: 0%; height: 20px; background-color: #28a745; text-align: center; line-height: 20px; color: white; font-size: 11px; font-weight: bold; transition: width 0.4s ease; }
   </style>
 </head>
 <body>
@@ -41,7 +43,6 @@
   </div>
 
   <div class="card">
-    <!-- 3 TOMBOL DALAM SATU BARIS -->
     <div class="button-grid">
       <button class="btn-green" onclick="ambilFoto('SEBELUM')">Foto Sblm</button>
       <button class="btn-red" id="btnRecord" onclick="toggleRecord()">Rekam</button>
@@ -57,7 +58,13 @@
 
   <div class="card">
     <label style="font-size: 13px;"><input type="checkbox" id="chkConfirm" onchange="document.getElementById('btnUpload').disabled = !this.checked"> Dokumentasi lengkap.</label>
+    
+    <!-- TOMBOL & PROGRESS BAR -->
     <button id="btnUpload" class="btn-blue" style="background:#17a2b8; margin-top:10px;" onclick="uploadSemuaData()" disabled>☁️ Upload ke Drive</button>
+    
+    <div id="progress-container">
+      <div id="progress-bar">0%</div>
+    </div>
   </div>
 
 <script>
@@ -67,7 +74,14 @@
 
   async function initCamera() {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          facingMode: { ideal: "environment" },
+          width: { ideal: 854 },   // Resolusi 480p (Lebih ringan untuk durasi lama)
+          height: { ideal: 480 }
+        }, 
+        audio: false 
+      });
       document.getElementById('preview').srcObject = stream;
     } catch (e) { alert("Kamera gagal: " + e.message); }
   }
@@ -97,7 +111,17 @@
         timerDiv.innerText = `${Math.floor(seconds/60).toString().padStart(2,'0')}:${(seconds%60).toString().padStart(2,'0')}`;
       }, 1000);
       
-      mediaRecorder = new MediaRecorder(document.getElementById('preview').srcObject, { mimeType: 'video/webm' });
+      const options = {
+        mimeType: 'video/webm',
+        videoBitsPerSecond: 600000 // Kompresi ekstra pas untuk resolusi 480p
+      };
+
+      try {
+        mediaRecorder = new MediaRecorder(document.getElementById('preview').srcObject, options);
+      } catch (e) {
+        mediaRecorder = new MediaRecorder(document.getElementById('preview').srcObject);
+      }
+
       mediaRecorder.ondataavailable = e => { if(e.data.size > 0) recordedChunks.push(e.data); };
       mediaRecorder.start();
       isRecording = true; btn.innerText = "Stop";
@@ -134,14 +158,53 @@
     const resi = document.getElementById('inputResi').value.trim();
     if (!resi || !fotoSebelum || !videoPacking || !fotoSesudah) return alert("Pastikan semua data sudah terisi!");
     
+    // Nonaktifkan tombol dan tampilkan progress bar
     document.getElementById('btnUpload').disabled = true;
-    document.getElementById('btnUpload').innerText = "Mengunggah...";
+    document.getElementById('btnUpload').innerText = "Sedang Mengunggah...";
+    const pContainer = document.getElementById('progress-container');
+    const pBar = document.getElementById('progress-bar');
+    pContainer.style.display = 'block';
     
+    // Simulasi progress bar berjalan halus
+    let progress = 10;
+    pBar.style.width = progress + '%';
+    pBar.innerText = progress + '%';
+    
+    let intervalSimulasi = setInterval(() => {
+      if (progress < 90) {
+        progress += 10;
+        pBar.style.width = progress + '%';
+        pBar.innerText = progress + '%';
+      }
+    }, 300);
+
     fetch(GAS_URL, { method: "POST", body: JSON.stringify({ resi, fotoSebelum, videoPacking, fotoSesudah }) })
-    .then(r => r.json()).then(r => { 
-        if(r.status === "success") { alert("Sukses!"); location.reload(); }
-        else { alert("Gagal: " + r.message); document.getElementById('btnUpload').disabled = false; }
+    .then(r => r.json())
+    .then(r => { 
+        clearInterval(intervalSimulasi);
+        pBar.style.width = '100%';
+        pBar.innerText = '100%';
+        
+        if(r.status === "success") { 
+            alert("✅ Berhasil tersimpan di Google Drive!"); 
+            location.reload(); 
+        } else { 
+            alert("❌ Gagal: " + r.message); 
+            resetUploadUI();
+        }
+    })
+    .catch(err => {
+        clearInterval(intervalSimulasi);
+        alert("❌ Terjadi kesalahan jaringan: " + err);
+        resetUploadUI();
     });
+  }
+
+  function resetUploadUI() {
+    document.getElementById('btnUpload').disabled = false;
+    document.getElementById('btnUpload').innerText = "☁️ Upload ke Drive";
+    document.getElementById('progress-container').style.display = 'none';
+    document.getElementById('progress-bar').style.width = '0%';
   }
 </script>
 </body>
