@@ -51,7 +51,7 @@
     
     <div id="status-panel" style="margin-top:10px; font-size:12px;">
       <span id="statSebelum">Foto Sebelum: ❌</span> | 
-      <span id="statVideo">Video: ❌</span> | 
+      <span id="statVideo">Video: ✅</span> | 
       <span id="statSesudah">Foto Sesudah: ❌</span>
     </div>
   </div>
@@ -74,12 +74,12 @@
 
   async function initCamera() {
     try {
-      // Kamera utama diset 1080p Full HD khusus untuk FOTO yang super tajam
+      // Meminta resolusi vertikal (potret) agar kamera HP tegak secara natural
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
           facingMode: { ideal: "environment" },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
+          width: { ideal: 1080 },
+          height: { ideal: 1920 }
         }, 
         audio: false 
       });
@@ -114,26 +114,24 @@
         timerDiv.innerText = `${Math.floor(seconds/60).toString().padStart(2,'0')}:${(seconds%60).toString().padStart(2,'0')}`;
       }, 1000);
       
-      // MEMBUAT CANVAS TERSEMBUNYI UNTUK DOWNSIZE VIDEO KE 480P (854x480)
+      // MEMBUAT CANVAS VERTIKAL (POTRET: Lebar 480 x Tinggi 854)
       videoCanvas = document.createElement('canvas');
-      videoCanvas.width = 854;
-      videoCanvas.height = 480;
+      videoCanvas.width = 480;
+      videoCanvas.height = 854;
       canvasCtx = videoCanvas.getContext('2d');
 
-      // Fungsi untuk terus menyalin gambar dari video 1080p ke canvas 480p secara real-time
       function drawVideoToCanvas() {
         if (!isRecording) return;
         canvasCtx.drawImage(videoElement, 0, 0, videoCanvas.width, videoCanvas.height);
         requestAnimationFrame(drawVideoToCanvas);
       }
       
-      // Ambil stream dari canvas yang ukurannya sudah 480p
-      canvasStream = videoCanvas.captureStream(30); // 30 FPS
+      canvasStream = videoCanvas.captureStream(30);
       requestAnimationFrame(drawVideoToCanvas);
 
       const options = {
         mimeType: 'video/webm',
-        videoBitsPerSecond: 600000 // Bitrate 600 kbps untuk kualitas stabil di 480p
+        videoBitsPerSecond: 600000 
       };
 
       try {
@@ -146,7 +144,7 @@
       mediaRecorder.start();
       isRecording = true; btn.innerText = "Stop";
     } else {
-      isRecording = false; // Menghentikan loop canvasStream
+      isRecording = false;
       mediaRecorder.stop();
       clearInterval(timerInterval); timerDiv.style.display = 'none';
       
@@ -166,10 +164,10 @@
   function captureFrame() {
     const v = document.getElementById('preview');
     const c = document.createElement('canvas');
-    c.width = v.videoWidth; // Mengambil ukuran asli 1080p
+    c.width = v.videoWidth; 
     c.height = v.videoHeight;
     c.getContext('2d').drawImage(v, 0, 0);
-    return c.toDataURL('image/jpeg', 0.95); // Hasil Foto Tetap 1080p Super Tajam
+    return c.toDataURL('image/jpeg', 0.95);
   }
 
   function ambilFoto(type) {
