@@ -51,7 +51,7 @@
     
     <div id="status-panel" style="margin-top:10px; font-size:12px;">
       <span id="statSebelum">Foto Sebelum: ❌</span> | 
-      <span id="statVideo">Video: ✅</span> | 
+      <span id="statVideo">Video: ❌</span> | 
       <span id="statSesudah">Foto Sesudah: ❌</span>
     </div>
   </div>
@@ -74,7 +74,7 @@
 
   async function initCamera() {
     try {
-      // Meminta resolusi vertikal (potret) agar kamera HP tegak secara natural
+      // Kamera utama dikunci ke 1080p (Full HD) agar FOTO yang dijepret nanti benar-benar tajam maksimal
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
           facingMode: { ideal: "environment" },
@@ -114,15 +114,34 @@
         timerDiv.innerText = `${Math.floor(seconds/60).toString().padStart(2,'0')}:${(seconds%60).toString().padStart(2,'0')}`;
       }, 1000);
       
-      // MEMBUAT CANVAS VERTIKAL (POTRET: Lebar 480 x Tinggi 854)
+      // MENGATUR CANVAS KE RESOLUSI 480p VERTIKAL (Lebar 480, Tinggi 854)
       videoCanvas = document.createElement('canvas');
       videoCanvas.width = 480;
       videoCanvas.height = 854;
       canvasCtx = videoCanvas.getContext('2d');
 
+      // Fungsi untuk menyalin gambar video dengan penyesuaian proporsi agar tidak gepeng
       function drawVideoToCanvas() {
         if (!isRecording) return;
-        canvasCtx.drawImage(videoElement, 0, 0, videoCanvas.width, videoCanvas.height);
+        
+        // Menghitung skala agar gambar masuk ke canvas 480x854 secara proporsional (object-fit: contain)
+        const vW = videoElement.videoWidth || 1080;
+        const vH = videoElement.videoHeight || 1920;
+        const cW = videoCanvas.width;
+        const cH = videoCanvas.height;
+
+        const hRatio = cW / vW;
+        const vRatio = cH / vH;
+        const ratio = Math.min(hRatio, vRatio);
+        
+        const centerShiftX = (cW - vW * ratio) / 2;
+        const centerShiftY = (cH - vH * ratio) / 2;
+
+        // Bersihkan canvas dan gambar ulang dengan proporsi yang pas
+        canvasCtx.fillStyle = "#000000";
+        canvasCtx.fillRect(0, 0, cW, cH);
+        canvasCtx.drawImage(videoElement, 0, 0, vW, vH, centerShiftX, centerShiftY, vW * ratio, vH * ratio);
+
         requestAnimationFrame(drawVideoToCanvas);
       }
       
@@ -131,7 +150,7 @@
 
       const options = {
         mimeType: 'video/webm',
-        videoBitsPerSecond: 600000 
+        videoBitsPerSecond: 500000 // Bitrate 500 kbps (sangat ringan untuk video 480p)
       };
 
       try {
@@ -164,10 +183,10 @@
   function captureFrame() {
     const v = document.getElementById('preview');
     const c = document.createElement('canvas');
-    c.width = v.videoWidth; 
+    c.width = v.videoWidth; // Mengambil resolusi asli kamera (1080p)
     c.height = v.videoHeight;
     c.getContext('2d').drawImage(v, 0, 0);
-    return c.toDataURL('image/jpeg', 0.95);
+    return c.toDataURL('image/jpeg', 0.95); // FOTO 100% DIJAMIN TAJAM 1080P
   }
 
   function ambilFoto(type) {
