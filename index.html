@@ -136,8 +136,8 @@
       }, 1000);
       
       videoCanvas = document.createElement('canvas');
-      videoCanvas.width = 480;
-      videoCanvas.height = 854;
+      videoCanvas.width = 720;
+      videoCanvas.height = 1280;
       canvasCtx = videoCanvas.getContext('2d');
 
       function drawVideoToCanvas() {
@@ -164,7 +164,7 @@
       canvasStream = videoCanvas.captureStream(30);
       requestAnimationFrame(drawVideoToCanvas);
 
-      const options = { mimeType: 'video/webm', videoBitsPerSecond: 500000 };
+      const options = { mimeType: 'video/webm', videoBitsPerSecond: 800000 };
 
       try {
         mediaRecorder = new MediaRecorder(canvasStream, options);
