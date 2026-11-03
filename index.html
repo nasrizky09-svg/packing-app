@@ -6,7 +6,7 @@
   <title>Dokumentasi Packing</title>
   <script src="https://unpkg.com/html5-qrcode"></script>
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 10px; background: #f0f2f5; padding-top: 360px; padding-bottom: 80px; } 
+    body { font-family: Arial, sans-serif; margin: 0; padding: 10px; background: #f0f2f5; padding-top: 360px; padding-bottom: 95px; } 
     
     /* KAMERA STICKY */
     #camera-sticky { position: fixed; top: 0; left: 0; width: 100%; height: 350px; background: #000; z-index: 1000; }
@@ -24,16 +24,20 @@
     .btn-red { background: #dc3545; }
     .btn-blue { background: #007bff; }
     
-    /* WIDGET ANTREAN UPLOAD FLOATING */
+    /* WIDGET ANTREAN UPLOAD FLOATING DENGAN PROGRESS BAR */
     #queue-widget {
       position: fixed; bottom: 0; left: 0; right: 0;
       background: #343a40; color: white; padding: 10px 15px;
       font-size: 12px; font-weight: bold; z-index: 2000;
-      display: flex; justify-content: space-between; align-items: center;
       box-shadow: 0 -2px 10px rgba(0,0,0,0.2);
     }
-    #queue-status { font-family: monospace; color: #ffc107; }
-    .btn-retry { background: #dc3545; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; }
+    .widget-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    #queue-status { font-family: monospace; color: #ffc107; font-size: 11px; }
+    .btn-retry { background: #dc3545; color: #fff; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 11px; }
+    
+    /* PROGRESS BAR ANTREAN */
+    #queue-progress-container { width: 100%; background: #555; height: 14px; border-radius: 7px; overflow: hidden; display: none; }
+    #queue-progress-bar { width: 0%; height: 100%; background: #28a745; text-align: center; line-height: 14px; font-size: 10px; color: white; transition: width 0.2s ease; }
   </style>
 </head>
 <body>
@@ -69,13 +73,19 @@
     <button id="btnSaveQueue" class="btn-blue" style="background:#17a2b8; margin-top:10px; width:100%;" onclick="simpanKeAntrean()" disabled>📥 Simpan & Lanjut Paket Berikutnya</button>
   </div>
 
-  <!-- FLOATING WIDGET ANTREAN BACKGROUND UPLOAD -->
+  <!-- FLOATING WIDGET ANTREAN BACKGROUND UPLOAD DENGAN VISUAL PROGRESS BAR -->
   <div id="queue-widget">
-    <div style="flex-grow: 1; padding-right: 10px;">
-      <span>🔄 Status Upload:</span>
-      <span id="queue-status">Antrean: 0 | Standby</span>
+    <div class="widget-header">
+      <div>
+        <span>🔄 Upload Status:</span>
+        <span id="queue-status">Antrean: 0 | Standby</span>
+      </div>
+      <button id="btnRetryManual" class="btn-retry" onclick="paksaMulaiAntrean()">🔁 Reset/Upload Ulang</button>
     </div>
-    <button id="btnRetryManual" class="btn-retry" onclick="paksaMulaiAntrean()">🔁 Reset/Upload Ulang</button>
+    
+    <div id="queue-progress-container">
+      <div id="queue-progress-bar">0%</div>
+    </div>
   </div>
 
 <script>
@@ -172,7 +182,7 @@
           timerDiv.innerText = `${Math.floor(seconds/60).toString().padStart(2,'0')}:${(seconds%60).toString().padStart(2,'0')}`;
         }, 1000);
 
-        const options = { mimeType: 'video/webm', videoBitsPerSecond: 800000 };
+        const options = { mimeType: 'video/webm', videoBitsPerSecond: 500000 };
 
         try {
           mediaRecorder = new MediaRecorder(canvasStream, options);
@@ -245,7 +255,7 @@
     document.getElementById('btnSaveQueue').disabled = true;
   }
 
-  // --- ANTREAN UPLOAD DENGAN STRICT TIMEOUT (MAX 35 DETIK) ---
+  // --- LOGIKA UPLOAD XHR DENGAN PROGRESS BAR REAL-TIME ---
   let isUploading = false;
 
   function prosesAntreanUpload() {
@@ -260,9 +270,10 @@
       if (cursor) {
         hitungSisaAntrean(count => {
           updateQueueWidget(`Antrean: ${count} | Uploading Resi: ${cursor.value.resi}...`);
-          uploadDataKeGAS(cursor.value, cursor.key);
+          uploadDataKeGASWithProgress(cursor.value, cursor.key);
         });
       } else {
+        sembunyikanProgressBar();
         updateQueueWidget("Antrean: 0 | Standby (Selesai)");
       }
     };
@@ -270,7 +281,7 @@
 
   function paksaMulaiAntrean() {
     isUploading = false;
-    updateQueueWidget("Memaksa restart antrean...");
+    updateQueueWidget("Memproses ulang antrean...");
     setTimeout(prosesAntreanUpload, 500);
   }
 
@@ -280,54 +291,81 @@
     countReq.onsuccess = () => callback(countReq.result);
   }
 
-  function uploadDataKeGAS(item, idDB) {
+  function uploadDataKeGASWithProgress(item, idDB) {
     isUploading = true;
+    tampilkanProgressBar();
 
-    // Ketat: AbortController memutus fetch jika 35 detik tidak ada respons dari GAS
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => {
-      controller.abort();
-    }, 180000);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", GAS_URL, true);
 
-    fetch(GAS_URL, { 
-      method: "POST", 
-      body: JSON.stringify({ resi: item.resi, fotoSebelum: item.fotoSebelum, videoPacking: item.videoPacking, fotoSesudah: item.fotoSesudah }),
-      signal: controller.signal
-    })
-    .then(r => r.json())
-    .then(r => {
-      clearTimeout(timeoutId);
-      if (r.status === "success") {
-        const tx = db.transaction("queue", "readwrite");
-        tx.objectStore("queue").delete(idDB);
-        tx.oncomplete = () => {
-          updateQueueWidget(`✅ Resi ${item.resi} Berhasil! Jeda 3 detik...`);
-          // Beri jeda 3 detik agar Google Apps Script rileks sebelum memproses paket berikutnya
-          setTimeout(() => {
-            isUploading = false;
-            prosesAntreanUpload();
-          }, 3000);
-        };
-      } else {
-        penangananUploadGagal(item.resi);
+    // Menerima update persen pengiriman data secara real-time
+    xhr.upload.onprogress = function(e) {
+      if (e.lengthComputable) {
+        const percentComplete = Math.round((e.loaded / e.total) * 100);
+        updateProgressBar(percentComplete);
       }
-    })
-    .catch(err => {
-      clearTimeout(timeoutId);
-      penangananUploadGagal(item.resi);
-    });
+    };
+
+    xhr.onload = function() {
+      if (xhr.status === 200) {
+        try {
+          const res = JSON.parse(xhr.responseText);
+          if (res.status === "success") {
+            const tx = db.transaction("queue", "readwrite");
+            tx.objectStore("queue").delete(idDB);
+            tx.oncomplete = () => {
+              updateQueueWidget(`✅ Resi ${item.resi} Berhasil! Jeda 2 detik...`);
+              setTimeout(() => {
+                isUploading = false;
+                prosesAntreanUpload();
+              }, 2000);
+            };
+          } else {
+            penangananUploadGagal(item.resi, "Respon GAS Error");
+          }
+        } catch (err) {
+          penangananUploadGagal(item.resi, "Gagal Parsing Response");
+        }
+      } else {
+        penangananUploadGagal(item.resi, `HTTP Error ${xhr.status}`);
+      }
+    };
+
+    xhr.onerror = function() {
+      penangananUploadGagal(item.resi, "Jaringan Terputus");
+    };
+
+    xhr.ontimeout = function() {
+      penangananUploadGagal(item.resi, "Timeout 3 Menit");
+    };
+
+    xhr.timeout = 180000; // Timeout 3 menit (180.000 ms)
+    xhr.send(JSON.stringify({ resi: item.resi, fotoSebelum: item.fotoSebelum, videoPacking: item.videoPacking, fotoSesudah: item.fotoSesudah }));
   }
 
-  function penangananUploadGagal(resi) {
-    updateQueueWidget(`⚠️ Timeout/Gagal (${resi}). Mencoba lagi dalam 5 dtk...`);
-    setTimeout(() => {
-      isUploading = false;
-      prosesAntreanUpload();
-    }, 5000);
+  function penangananUploadGagal(resi, alasan) {
+    isUploading = false;
+    sembunyikanProgressBar();
+    updateQueueWidget(`⚠️ Gagal (${resi}) - ${alasan}. Tekan Reset.`);
   }
 
   function updateQueueWidget(teks) {
     document.getElementById('queue-status').innerText = teks;
+  }
+
+  function tampilkanProgressBar() {
+    document.getElementById('queue-progress-container').style.display = 'block';
+    updateProgressBar(0);
+  }
+
+  function sembunyikanProgressBar() {
+    document.getElementById('queue-progress-container').style.display = 'none';
+  }
+
+  function updateProgressBar(persen) {
+    const pBar = document.getElementById('queue-progress-bar');
+    pBar.style.width = persen + '%';
+    pBar.innerText = persen + '%';
   }
 </script>
 </body>
