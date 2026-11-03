@@ -6,7 +6,7 @@
   <title>Dokumentasi Packing</title>
   <script src="https://unpkg.com/html5-qrcode"></script>
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 10px; background: #f0f2f5; padding-top: 360px; } 
+    body { font-family: Arial, sans-serif; margin: 0; padding: 10px; background: #f0f2f5; padding-top: 360px; padding-bottom: 80px; } 
     
     /* KAMERA STICKY */
     #camera-sticky { position: fixed; top: 0; left: 0; width: 100%; height: 350px; background: #000; z-index: 1000; }
@@ -24,9 +24,15 @@
     .btn-red { background: #dc3545; }
     .btn-blue { background: #007bff; }
     
-    /* PROGRESS BAR STYLING */
-    #progress-container { width: 100%; background-color: #e0e0e0; border-radius: 6px; margin-top: 10px; display: none; overflow: hidden; }
-    #progress-bar { width: 0%; height: 22px; background-color: #28a745; text-align: center; line-height: 22px; color: white; font-size: 11px; font-weight: bold; transition: width 0.4s ease; }
+    /* WIDGET ANTREAN UPLOAD FLOATING */
+    #queue-widget {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: #343a40; color: white; padding: 10px 15px;
+      font-size: 13px; font-weight: bold; z-index: 2000;
+      display: flex; justify-content: space-between; align-items: center;
+      box-shadow: 0 -2px 10px rgba(0,0,0,0.2);
+    }
+    #queue-status { font-family: monospace; }
   </style>
 </head>
 <body>
@@ -57,24 +63,39 @@
   </div>
 
   <div class="card">
-    <label style="font-size: 13px;"><input type="checkbox" id="chkConfirm" onchange="document.getElementById('btnUpload').disabled = !this.checked"> Dokumentasi lengkap.</label>
+    <label style="font-size: 13px;"><input type="checkbox" id="chkConfirm" onchange="document.getElementById('btnSaveQueue').disabled = !this.checked"> Dokumentasi lengkap.</label>
     
-    <button id="btnUpload" class="btn-blue" style="background:#17a2b8; margin-top:10px;" onclick="uploadSemuaData()" disabled>☁️ Upload ke Drive</button>
-    
-    <div id="progress-container">
-      <div id="progress-bar">0% (0 detik)</div>
-    </div>
+    <button id="btnSaveQueue" class="btn-blue" style="background:#17a2b8; margin-top:10px; width:100%;" onclick="simpanKeAntrean()" disabled>📥 Simpan & Lanjut Paket Berikutnya</button>
+  </div>
+
+  <!-- STICKY BOTTOM WIDGET ANTREAN UPLOAD -->
+  <div id="queue-widget">
+    <span>🔄 Upload Background:</span>
+    <span id="queue-status">Antrean: 0 | Standby</span>
   </div>
 
 <script>
-  const GAS_URL = "https://script.google.com/macros/s/AKfycbyzXvNdJ4grCNrXIU-YG5gYCK0pd-jYIxvvnCbwHfXrZScnc7OoXc_v_ca5uBF16KQ/exec"; // <-- GANTI INI DENGAN URL GAS KAMU
+  const GAS_URL = "PASTE_WEB_APP_URL_GAS_DI_SINI"; // <-- GANTI INI DENGAN URL GAS KAMU
   let fotoSebelum = "", videoPacking = "", fotoSesudah = "", isRecording = false;
   let mediaRecorder, recordedChunks = [], seconds = 0, timerInterval;
   let canvasStream, videoCanvas, canvasCtx;
 
+  // --- DATABASE LOCAL (INDEXEDDB) UNTUK ANTREAN ---
+  let db;
+  const dbRequest = indexedDB.open("PackingDB", 1);
+  dbRequest.onupgradeneeded = e => {
+    db = e.target.result;
+    if (!db.objectStoreNames.contains("queue")) {
+      db.createObjectStore("queue", { keyPath: "id", autoIncrement: true });
+    }
+  };
+  dbRequest.onsuccess = e => {
+    db = e.target.result;
+    prosesAntreanUpload(); // Mulai proses antrean jika ada sisa saat app dibuka
+  };
+
   async function initCamera() {
     try {
-      // Kamera utama dikunci ke 1080p (Full HD) agar FOTO yang dijepret nanti benar-benar tajam maksimal
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
           facingMode: { ideal: "environment" },
@@ -114,17 +135,13 @@
         timerDiv.innerText = `${Math.floor(seconds/60).toString().padStart(2,'0')}:${(seconds%60).toString().padStart(2,'0')}`;
       }, 1000);
       
-      // MENGATUR CANVAS KE RESOLUSI 480p VERTIKAL (Lebar 480, Tinggi 854)
       videoCanvas = document.createElement('canvas');
       videoCanvas.width = 480;
       videoCanvas.height = 854;
       canvasCtx = videoCanvas.getContext('2d');
 
-      // Fungsi untuk menyalin gambar video dengan penyesuaian proporsi agar tidak gepeng
       function drawVideoToCanvas() {
         if (!isRecording) return;
-        
-        // Menghitung skala agar gambar masuk ke canvas 480x854 secara proporsional (object-fit: contain)
         const vW = videoElement.videoWidth || 1080;
         const vH = videoElement.videoHeight || 1920;
         const cW = videoCanvas.width;
@@ -137,7 +154,6 @@
         const centerShiftX = (cW - vW * ratio) / 2;
         const centerShiftY = (cH - vH * ratio) / 2;
 
-        // Bersihkan canvas dan gambar ulang dengan proporsi yang pas
         canvasCtx.fillStyle = "#000000";
         canvasCtx.fillRect(0, 0, cW, cH);
         canvasCtx.drawImage(videoElement, 0, 0, vW, vH, centerShiftX, centerShiftY, vW * ratio, vH * ratio);
@@ -148,10 +164,7 @@
       canvasStream = videoCanvas.captureStream(30);
       requestAnimationFrame(drawVideoToCanvas);
 
-      const options = {
-        mimeType: 'video/webm',
-        videoBitsPerSecond: 500000 // Bitrate 500 kbps (sangat ringan untuk video 480p)
-      };
+      const options = { mimeType: 'video/webm', videoBitsPerSecond: 500000 };
 
       try {
         mediaRecorder = new MediaRecorder(canvasStream, options);
@@ -183,10 +196,10 @@
   function captureFrame() {
     const v = document.getElementById('preview');
     const c = document.createElement('canvas');
-    c.width = v.videoWidth; // Mengambil resolusi asli kamera (1080p)
+    c.width = v.videoWidth; 
     c.height = v.videoHeight;
     c.getContext('2d').drawImage(v, 0, 0);
-    return c.toDataURL('image/jpeg', 0.95); // FOTO 100% DIJAMIN TAJAM 1080P
+    return c.toDataURL('image/jpeg', 0.95);
   }
 
   function ambilFoto(type) {
@@ -194,65 +207,96 @@
     else { fotoSesudah = captureFrame(); document.getElementById('statSesudah').innerText = "Foto Sesudah: ✅"; }
   }
 
-  function uploadSemuaData() {
+  // --- MENYIMPAN KE ANTREAN & RESET FORM INSTAN ---
+  function simpanKeAntrean() {
     const resi = document.getElementById('inputResi').value.trim();
     if (!resi || !fotoSebelum || !videoPacking || !fotoSesudah) return alert("Pastikan semua data sudah terisi!");
-    
-    document.getElementById('btnUpload').disabled = true;
-    document.getElementById('btnUpload').innerText = "Sedang Mengunggah...";
-    const pContainer = document.getElementById('progress-container');
-    const pBar = document.getElementById('progress-bar');
-    pContainer.style.display = 'block';
-    
-    let uploadSeconds = 0;
-    let progress = 10;
-    pBar.style.width = progress + '%';
-    pBar.innerText = `${progress}% (${uploadSeconds} dtk)`;
-    
-    let uploadTimer = setInterval(() => {
-      uploadSeconds++;
-    }, 1000);
 
-    let intervalSimulasi = setInterval(() => {
-      if (progress < 90) {
-        progress += 10;
-        pBar.style.width = progress + '%';
-        pBar.innerText = `${progress}% (${uploadSeconds} dtk)`;
+    const dataItem = { resi, fotoSebelum, videoPacking, fotoSesudah, timestamp: new Date().getTime() };
+
+    const tx = db.transaction("queue", "readwrite");
+    tx.objectStore("queue").add(dataItem);
+    
+    tx.oncomplete = () => {
+      resetFormFormulir();
+      prosesAntreanUpload();
+    };
+  }
+
+  function resetFormFormulir() {
+    fotoSebelum = ""; videoPacking = ""; fotoSesudah = "";
+    document.getElementById('inputResi').value = "";
+    document.getElementById('statSebelum').innerText = "Foto Sebelum: ❌";
+    document.getElementById('statVideo').innerText = "Video: ❌";
+    document.getElementById('statSesudah').innerText = "Foto Sesudah: ❌";
+    document.getElementById('chkConfirm').checked = false;
+    document.getElementById('btnSaveQueue').disabled = true;
+  }
+
+  // --- SCRIPT PROSES BACKGROUND UPLOAD ---
+  let isUploading = false;
+
+  function prosesAntreanUpload() {
+    if (isUploading || !db) return;
+
+    const tx = db.transaction("queue", "readonly");
+    const store = tx.objectStore("queue");
+    const getReq = store.openCursor();
+
+    getReq.onsuccess = e => {
+      const cursor = e.target.result;
+      if (cursor) {
+        const totalItems = 1; // Akan diupdate dari count
+        hitungSisaAntrean(count => {
+          updateQueueWidget(`Antrean: ${count} | Memproses Resi: ${cursor.value.resi}...`);
+          uploadDataKeGAS(cursor.value, cursor.key);
+        });
+      } else {
+        updateQueueWidget("Antrean: 0 | Standby (Semua Ter-upload)");
       }
-    }, 300);
+    };
+  }
 
-    fetch(GAS_URL, { method: "POST", body: JSON.stringify({ resi, fotoSebelum, videoPacking, fotoSesudah }) })
+  function hitungSisaAntrean(callback) {
+    const tx = db.transaction("queue", "readonly");
+    const countReq = tx.objectStore("queue").count();
+    countReq.onsuccess = () => callback(countReq.result);
+  }
+
+  function uploadDataKeGAS(item, idDB) {
+    isUploading = true;
+
+    fetch(GAS_URL, { 
+      method: "POST", 
+      body: JSON.stringify({ resi: item.resi, fotoSebelum: item.fotoSebelum, videoPacking: item.videoPacking, fotoSesudah: item.fotoSesudah }) 
+    })
     .then(r => r.json())
-    .then(r => { 
-        clearInterval(intervalSimulasi);
-        clearInterval(uploadTimer);
-        pBar.style.width = '100%';
-        pBar.innerText = `100% (${uploadSeconds} dtk) - Selesai!`;
-        
-        if(r.status === "success") { 
-            setTimeout(() => {
-                alert("✅ Berhasil tersimpan di Google Drive!"); 
-                location.reload(); 
-            }, 500);
-        } else { 
-            alert("❌ Gagal: " + r.message); 
-            resetUploadUI();
-        }
+    .then(r => {
+      if (r.status === "success") {
+        // Hapus dari antrean lokal jika sukses
+        const tx = db.transaction("queue", "readwrite");
+        tx.objectStore("queue").delete(idDB);
+        tx.oncomplete = () => {
+          isUploading = false;
+          prosesAntreanUpload(); // Lanjut ke antrean berikutnya
+        };
+      } else {
+        isUploading = false;
+        updateQueueWidget(`❌ Gagal Upload (${item.resi}). Mencoba lagi nanti...`);
+        setTimeout(prosesAntreanUpload, 5000); // Coba lagi setelah 5 detik
+      }
     })
     .catch(err => {
-        clearInterval(intervalSimulasi);
-        clearInterval(uploadTimer);
-        alert("❌ Terjadi kesalahan jaringan: " + err);
-        resetUploadUI();
+      isUploading = false;
+      updateQueueWidget(`⚠️ Jaringan Terputus (${item.resi}). Menunggu koneksi...`);
+      setTimeout(prosesAntreanUpload, 7000); // Coba lagi setelah 7 detik
     });
   }
 
-  function resetUploadUI() {
-    document.getElementById('btnUpload').disabled = false;
-    document.getElementById('btnUpload').innerText = "☁️ Upload ke Drive";
-    document.getElementById('progress-container').style.display = 'none';
-    document.getElementById('progress-bar').style.width = '0%';
+  function updateQueueWidget(teks) {
+    document.getElementById('queue-status').innerText = teks;
   }
 </script>
 </body>
-</html>
+  </html>
+  
