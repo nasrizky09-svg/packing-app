@@ -20,12 +20,18 @@
     #timer { text-align: center; font-size: 18px; font-weight: bold; color: red; display: none; margin: 5px 0; }
     .status-text { font-size: 12px; color: #555; margin: 5px 0; text-align: center; }
     
-    /* Widget Antrean Bottom Bar & Progress Bar */
-    #queue-widget { position: fixed; bottom: 0; left: 0; right: 0; background: #222; color: #fff; padding: 10px 15px; font-size: 13px; z-index: 9999; }
+    /* Widget Antrean Bottom Bar */
+    #queue-widget { position: fixed; bottom: 0; left: 0; right: 0; background: #222; color: #fff; padding: 10px 15px; font-size: 13px; z-index: 999; }
     .queue-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
     #btnResetUpload { background: #dc3545; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 12px; }
     .progress-container { width: 100%; background-color: #444; border-radius: 4px; height: 8px; overflow: hidden; display: none; }
     .progress-bar { width: 0%; height: 100%; background-color: #28a745; transition: width 0.2s ease; }
+
+    /* Modal Overlay Upload Langsung (Durasi > 6 Mnt) */
+    #directUploadModal { display: none; position: fixed; top:0; left:0; right:0; bottom:0; background: rgba(0,0,0,0.85); color: #fff; z-index: 10000; flex-direction: column; justify-content: center; align-items: center; padding: 20px; text-align: center; }
+    .modal-box { background: #333; padding: 25px; border-radius: 10px; width: 90%; max-width: 400px; }
+    .modal-bar-container { width: 100%; background: #555; height: 12px; border-radius: 6px; overflow: hidden; margin: 15px 0; }
+    .modal-bar { width: 0%; height: 100%; background: #007bff; transition: width 0.2s ease; }
   </style>
 </head>
 <body>
@@ -61,7 +67,7 @@
   <button class="btn btn-green" id="btnSaveQueue" disabled onclick="simpanKeAntrean()">📦 Simpan & Lanjut Paket Berikutnya</button>
 </div>
 
-<!-- Widget Bottom Bar Antrean & Bar Progres -->
+<!-- Widget Bottom Bar Antrean -->
 <div id="queue-widget">
   <div class="queue-header">
     <span id="queue-status">Menghubungkan Database...</span>
@@ -72,12 +78,25 @@
   </div>
 </div>
 
+<!-- Overlay Upload Langsung Durasi Panjang -->
+<div id="directUploadModal">
+  <div class="modal-box">
+    <h3 style="margin-top:0;">⏳ Mengunggah Video Panjang</h3>
+    <p id="modalText">Durasi video ≥ 6 menit. Mengirim langsung ke Drive...</p>
+    <div class="modal-bar-container">
+      <div class="modal-bar" id="modalProgressBar"></div>
+    </div>
+    <div id="modalPercent" style="font-weight: bold; font-size: 18px;">0%</div>
+  </div>
+</div>
+
 <script>
-  // WAJIB GANTI DENGAN URL WEB APP GAS KAMU (AKHIRI DENGAN /exec)
+  // WAJIB ISI URL WEB APP GAS KAMU (BERAKHIRAN /exec)
   const GAS_URL = "https://script.google.com/macros/s/AKfycbzHqPHlpRe1gEb6mF53sVGUEQ3XTTPkHac1cpRTs5DdHVHk0TCDChwEJDeBatmjS4p8/exec";
 
   let fotoSebelum = "", videoPacking = "", fotoSesudah = "", isRecording = false;
   let mediaRecorder, recordedChunks = [], seconds = 0, timerInterval;
+  let lastVideoDuration = 0; // Menyimpan durasi detik rekaman terakhir
   let canvasStream, videoCanvas, canvasCtx;
 
   // --- DATABASE LOCAL (INDEXEDDB) ---
@@ -152,7 +171,7 @@
         requestAnimationFrame(drawVideoToCanvas);
       }
       
-      canvasStream = videoCanvas.captureStream(30);
+      canvasStream = videoCanvas.captureStream(24); // 15 FPS agar seimbang & efisien
       isRecording = true;
       requestAnimationFrame(drawVideoToCanvas);
 
@@ -164,7 +183,7 @@
           timerDiv.innerText = `${Math.floor(seconds/60).toString().padStart(2,'0')}:${(seconds%60).toString().padStart(2,'0')}`;
         }, 1000);
 
-        const options = { mimeType: 'video/webm', videoBitsPerSecond: 800000 };
+        const options = { mimeType: 'video/webm', videoBitsPerSecond: 600000 };
 
         try {
           mediaRecorder = new MediaRecorder(canvasStream, options);
@@ -179,6 +198,7 @@
 
     } else {
       isRecording = false;
+      lastVideoDuration = seconds; // Simpan total durasi rekaman
       if (mediaRecorder && mediaRecorder.state !== "inactive") {
         mediaRecorder.stop();
       }
@@ -191,7 +211,7 @@
         reader.readAsDataURL(blob);
         reader.onloadend = () => {
           videoPacking = reader.result;
-          document.getElementById('statVideo').innerText = "Video: ✅";
+          document.getElementById('statVideo').innerText = `Video: ✅ (${Math.floor(lastVideoDuration/60)}m ${lastVideoDuration%60}s)`;
         };
       };
       btn.innerText = "Rekam";
@@ -214,22 +234,90 @@
 
   function simpanKeAntrean() {
     const resi = document.getElementById('inputResi').value.trim();
-    if (!resi || !fotoSebelum || !videoPacking || !fotoSesudah) return alert("Pastikan semua data sudah terisi!");
+    if (!resi || !fotoSebelum || !videoPacking || !fotoSesudah) return alert("Pastikan semua data terisi!");
 
     const dataItem = { resi, fotoSebelum, videoPacking, fotoSesudah, timestamp: new Date().getTime() };
 
-    const tx = db.transaction("queue", "readwrite");
-    tx.objectStore("queue").add(dataItem);
-    
-    tx.oncomplete = () => {
-      resetFormFormulir();
-      updateStatusAntreanRealtime();
-      prosesAntreanUpload();
+    // AMBANG BATASE DITETAPKAN 360 DETIK (6 MENIT)
+    if (lastVideoDuration >= 360) {
+      // JIKA DURASI >= 6 MENIT: UPLOAD LANGSUNG (DIRECT MODE)
+      uploadLangsungMode(dataItem);
+    } else {
+      // JIKA DURASI < 6 MENIT: MASUK ANTREAN INDEXEDDB (BACKGROUND MODE)
+      const tx = db.transaction("queue", "readwrite");
+      tx.objectStore("queue").add(dataItem);
+      
+      tx.oncomplete = () => {
+        resetFormFormulir();
+        updateStatusAntreanRealtime();
+        prosesAntreanUpload();
+      };
+    }
+  }
+
+  // --- MODUS 1: UPLOAD LANGSUNG UNTUK DURASI PANJANG (DIRECT) ---
+  function uploadLangsungMode(item) {
+    const modal = document.getElementById('directUploadModal');
+    const modalText = document.getElementById('modalText');
+    const modalBar = document.getElementById('modalProgressBar');
+    const modalPercent = document.getElementById('modalPercent');
+
+    modalText.innerText = `Resi: ${item.resi}\nDurasi: ${Math.floor(lastVideoDuration/60)} mnt. Mengirim langsung ke Drive...`;
+    modalBar.style.width = "0%";
+    modalPercent.innerText = "0%";
+    modal.style.display = "flex";
+
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", GAS_URL, true);
+    xhr.timeout = 300000; // Timeout diperpanjang hingga 5 menit untuk video besar
+
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable) {
+        const percent = Math.round((e.loaded / e.total) * 100);
+        modalBar.style.width = percent + "%";
+        modalPercent.innerText = percent + "%";
+      }
     };
+
+    xhr.onload = () => {
+      modal.style.display = "none";
+      if (xhr.status === 200) {
+        try {
+          const r = JSON.parse(xhr.responseText);
+          if (r.status === "success") {
+            alert(`✅ Resi ${item.resi} (Video Panjang) Berhasil Terunggah!`);
+            resetFormFormulir();
+          } else {
+            alert(`❌ Upload Gagal: Server mengembalikan error.`);
+          }
+        } catch(e) {
+          alert(`❌ Respon server tidak valid.`);
+        }
+      } else {
+        alert(`❌ Error HTTP ${xhr.status}`);
+      }
+    };
+
+    xhr.onerror = () => {
+      modal.style.display = "none";
+      alert("❌ Koneksi Terputus saat mengunggah video panjang.");
+    };
+
+    xhr.ontimeout = () => {
+      modal.style.display = "none";
+      alert("❌ Upload Timeout (Lebih dari 5 Menit).");
+    };
+
+    xhr.send(JSON.stringify({ 
+      resi: item.resi, 
+      fotoSebelum: item.fotoSebelum, 
+      videoPacking: item.videoPacking, 
+      fotoSesudah: item.fotoSesudah 
+    }));
   }
 
   function resetFormFormulir() {
-    fotoSebelum = ""; videoPacking = ""; fotoSesudah = "";
+    fotoSebelum = ""; videoPacking = ""; fotoSesudah = ""; lastVideoDuration = 0;
     document.getElementById('inputResi').value = "";
     document.getElementById('statSebelum').innerText = "Foto Sebelum: ❌";
     document.getElementById('statVideo').innerText = "Video: ❌";
@@ -238,7 +326,7 @@
     document.getElementById('btnSaveQueue').disabled = true;
   }
 
-  // --- LOGIKA UPLOAD & PROGRES BAR REALTIME ---
+  // --- MODUS 2: ANTREAN INDEXEDDB BACKGROUND (DURASI SINKAT < 6 MNT) ---
   let isUploading = false;
 
   function hitungSisaAntrean(callback) {
@@ -293,9 +381,8 @@
 
     const xhr = new XMLHttpRequest();
     xhr.open("POST", GAS_URL, true);
-    xhr.timeout = 180000; // Timeout 3 menit
+    xhr.timeout = 180000;
 
-    // Progres Upload Realtime (%)
     xhr.upload.onprogress = e => {
       if (e.lengthComputable) {
         const percent = Math.round((e.loaded / e.total) * 100);
