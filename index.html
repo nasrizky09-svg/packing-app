@@ -24,15 +24,16 @@
     .btn-red { background: #dc3545; }
     .btn-blue { background: #007bff; }
     
-    /* WIDGET ANTREAN UPLOAD FLOATING ATAS/BAWAH */
+    /* WIDGET ANTREAN UPLOAD FLOATING */
     #queue-widget {
       position: fixed; bottom: 0; left: 0; right: 0;
-      background: #343a40; color: white; padding: 12px 15px;
-      font-size: 13px; font-weight: bold; z-index: 2000;
+      background: #343a40; color: white; padding: 10px 15px;
+      font-size: 12px; font-weight: bold; z-index: 2000;
       display: flex; justify-content: space-between; align-items: center;
       box-shadow: 0 -2px 10px rgba(0,0,0,0.2);
     }
     #queue-status { font-family: monospace; color: #ffc107; }
+    .btn-retry { background: #ffc107; color: #000; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; display: none; }
   </style>
 </head>
 <body>
@@ -70,8 +71,11 @@
 
   <!-- FLOATING WIDGET ANTREAN BACKGROUND UPLOAD -->
   <div id="queue-widget">
-    <span>🔄 Upload Background:</span>
-    <span id="queue-status">Antrean: 0 | Standby</span>
+    <div>
+      <span>🔄 Status Upload:</span>
+      <span id="queue-status">Antrean: 0 | Standby</span>
+    </div>
+    <button id="btnRetryManual" class="btn-retry" onclick="paksaMulaiAntrean()">🔁 Coba Lagi</button>
   </div>
 
 <script>
@@ -122,7 +126,7 @@
     });
   }
 
-    function toggleRecord() {
+  function toggleRecord() {
     const btn = document.getElementById('btnRecord');
     const timerDiv = document.getElementById('timer');
     const videoElement = document.getElementById('preview');
@@ -130,7 +134,6 @@
     if (!isRecording) {
       recordedChunks = []; seconds = 0;
       
-      // 1. SETUP CANVAS 720p
       videoCanvas = document.createElement('canvas');
       videoCanvas.width = 720;
       videoCanvas.height = 1280;
@@ -157,11 +160,10 @@
         requestAnimationFrame(drawVideoToCanvas);
       }
       
-      canvasStream = videoCanvas.captureStream(30); // 30 FPS
-      isRecording = true; // Set flag aktif untuk memicu loop canvas
+      canvasStream = videoCanvas.captureStream(30);
+      isRecording = true;
       requestAnimationFrame(drawVideoToCanvas);
 
-      // 2. WARM-UP JEDA 250ms AGAR CANVAS STABIL SEBELUM PEREKAMAN DIMULAI
       setTimeout(() => {
         timerDiv.style.display = 'block'; 
         timerDiv.innerText = "00:00";
@@ -179,8 +181,6 @@
         }
 
         mediaRecorder.ondataavailable = e => { if(e.data.size > 0) recordedChunks.push(e.data); };
-        
-        // Memulai rekaman dengan timeslice 100ms agar pengolahan frame awal mulus
         mediaRecorder.start(100); 
         btn.innerText = "Stop";
       }, 250);
@@ -206,7 +206,6 @@
     }
   }
 
-
   function captureFrame() {
     const v = document.getElementById('preview');
     const c = document.createElement('canvas');
@@ -218,10 +217,9 @@
 
   function ambilFoto(type) {
     if(type === 'SEBELUM') { fotoSebelum = captureFrame(); document.getElementById('statSebelum').innerText = "Foto Sebelum: ✅"; }
-    else { fotoSesudah = captureFrame(); document.getElementById('statSesudah').innerText = "Foto Sesudah: ✅"; }
+    else { fotoSesudah = captureFrame(); document.getElementById('statSesudah').innerText = "Foto Sesudah: ❌"; }
   }
 
-  // --- LOGIKA UPLOAD BACKGROUND & RESET FORM INSTAN ---
   function simpanKeAntrean() {
     const resi = document.getElementById('inputResi').value.trim();
     if (!resi || !fotoSebelum || !videoPacking || !fotoSesudah) return alert("Pastikan semua data sudah terisi!");
@@ -247,6 +245,7 @@
     document.getElementById('btnSaveQueue').disabled = true;
   }
 
+  // --- LOGIKA UPLOAD & MANAJEMEN RETRY MANUAL ---
   let isUploading = false;
 
   function prosesAntreanUpload() {
@@ -259,14 +258,22 @@
     getReq.onsuccess = e => {
       const cursor = e.target.result;
       if (cursor) {
+        document.getElementById('btnRetryManual').style.display = 'none';
         hitungSisaAntrean(count => {
           updateQueueWidget(`Antrean: ${count} | Uploading Resi: ${cursor.value.resi}...`);
           uploadDataKeGAS(cursor.value, cursor.key);
         });
       } else {
+        document.getElementById('btnRetryManual').style.display = 'none';
         updateQueueWidget("Antrean: 0 | Standby (Selesai)");
       }
     };
+  }
+
+  function paksaMulaiAntrean() {
+    isUploading = false;
+    document.getElementById('btnRetryManual').style.display = 'none';
+    prosesAntreanUpload();
   }
 
   function hitungSisaAntrean(callback) {
@@ -278,30 +285,42 @@
   function uploadDataKeGAS(item, idDB) {
     isUploading = true;
 
+    // Timeout otomatis 60 detik jika koneksi menggantung
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+
     fetch(GAS_URL, { 
       method: "POST", 
-      body: JSON.stringify({ resi: item.resi, fotoSebelum: item.fotoSebelum, videoPacking: item.videoPacking, fotoSesudah: item.fotoSesudah }) 
+      body: JSON.stringify({ resi: item.resi, fotoSebelum: item.fotoSebelum, videoPacking: item.videoPacking, fotoSesudah: item.fotoSesudah }),
+      signal: controller.signal
     })
     .then(r => r.json())
     .then(r => {
+      clearTimeout(timeoutId);
       if (r.status === "success") {
         const tx = db.transaction("queue", "readwrite");
         tx.objectStore("queue").delete(idDB);
         tx.oncomplete = () => {
-          isUploading = false;
-          prosesAntreanUpload(); 
+          updateQueueWidget(`✅ Resi ${item.resi} Berhasil! Jeda 2 detik...`);
+          setTimeout(() => {
+            isUploading = false;
+            prosesAntreanUpload();
+          }, 2000);
         };
       } else {
-        isUploading = false;
-        updateQueueWidget(`❌ Gagal (${item.resi}). Mencoba lagi...`);
-        setTimeout(prosesAntreanUpload, 4000);
+        penangananUploadGagal(item.resi);
       }
     })
     .catch(err => {
-      isUploading = false;
-      updateQueueWidget(`⚠️ Koneksi terputus. Menunggu...`);
-      setTimeout(prosesAntreanUpload, 6000);
+      clearTimeout(timeoutId);
+      penangananUploadGagal(item.resi);
     });
+  }
+
+  function penangananUploadGagal(resi) {
+    isUploading = false;
+    document.getElementById('btnRetryManual').style.display = 'inline-block';
+    updateQueueWidget(`⚠️ Gagal Upload (${resi}). Tekan 'Coba Lagi'...`);
   }
 
   function updateQueueWidget(teks) {
