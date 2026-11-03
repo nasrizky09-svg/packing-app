@@ -239,7 +239,7 @@
     const dataItem = { resi, fotoSebelum, videoPacking, fotoSesudah, timestamp: new Date().getTime() };
 
     // AMBANG BATASE DITETAPKAN 360 DETIK (6 MENIT)
-    if (lastVideoDuration >= 360) {
+    if (lastVideoDuration >= 480) {
       // JIKA DURASI >= 6 MENIT: UPLOAD LANGSUNG (DIRECT MODE)
       uploadLangsungMode(dataItem);
     } else {
