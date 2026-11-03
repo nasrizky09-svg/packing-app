@@ -6,7 +6,7 @@
   <title>Dokumentasi Packing</title>
   <script src="https://unpkg.com/html5-qrcode"></script>
   <style>
-    body { font-family: sans-serif; margin: 0; padding: 10px; background: #f0f2f5; }
+    body { font-family: sans-serif; margin: 0; padding: 10px; background: #f0f2f5; padding-bottom: 70px; }
     .container { max-width: 500px; margin: auto; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
     video, canvas { width: 100%; border-radius: 6px; background: #000; }
     .btn { width: 100%; padding: 12px; margin: 5px 0; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
@@ -20,9 +20,12 @@
     #timer { text-align: center; font-size: 18px; font-weight: bold; color: red; display: none; margin: 5px 0; }
     .status-text { font-size: 12px; color: #555; margin: 5px 0; text-align: center; }
     
-    /* Widget Antrean Bottom Bar */
-    #queue-widget { position: fixed; bottom: 0; left: 0; right: 0; background: #222; color: #fff; padding: 10px 15px; font-size: 13px; display: flex; justify-content: space-between; align-items: center; z-index: 9999; }
+    /* Widget Antrean Bottom Bar & Progress Bar */
+    #queue-widget { position: fixed; bottom: 0; left: 0; right: 0; background: #222; color: #fff; padding: 10px 15px; font-size: 13px; z-index: 9999; }
+    .queue-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
     #btnResetUpload { background: #dc3545; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 12px; }
+    .progress-container { width: 100%; background-color: #444; border-radius: 4px; height: 8px; overflow: hidden; display: none; }
+    .progress-bar { width: 0%; height: 100%; background-color: #28a745; transition: width 0.2s ease; }
   </style>
 </head>
 <body>
@@ -58,14 +61,19 @@
   <button class="btn btn-green" id="btnSaveQueue" disabled onclick="simpanKeAntrean()">📦 Simpan & Lanjut Paket Berikutnya</button>
 </div>
 
-<!-- Widget Bottom Bar Antrean -->
+<!-- Widget Bottom Bar Antrean & Bar Progres -->
 <div id="queue-widget">
-  <span id="queue-status">Menghubungkan Database...</span>
-  <button id="btnResetUpload" onclick="paksaMulaiAntrean()">🔁 Reset/Upload Ulang</button>
+  <div class="queue-header">
+    <span id="queue-status">Menghubungkan Database...</span>
+    <button id="btnResetUpload" onclick="paksaMulaiAntrean()">🔁 Reset/Upload Ulang</button>
+  </div>
+  <div class="progress-container" id="progressContainer">
+    <div class="progress-bar" id="progressBar"></div>
+  </div>
 </div>
 
 <script>
-  // PASTE URL WEB APP APPS SCRIPT KAMU DI SINI (WAJIB DIKHIRI /exec)
+  // WAJIB GANTI DENGAN URL WEB APP GAS KAMU (AKHIRI DENGAN /exec)
   const GAS_URL = "https://script.google.com/macros/s/AKfycbzHqPHlpRe1gEb6mF53sVGUEQ3XTTPkHac1cpRTs5DdHVHk0TCDChwEJDeBatmjS4p8/exec";
 
   let fotoSebelum = "", videoPacking = "", fotoSesudah = "", isRecording = false;
@@ -83,6 +91,7 @@
   };
   dbRequest.onsuccess = e => {
     db = e.target.result;
+    updateStatusAntreanRealtime();
     prosesAntreanUpload(); 
   };
 
@@ -155,7 +164,6 @@
           timerDiv.innerText = `${Math.floor(seconds/60).toString().padStart(2,'0')}:${(seconds%60).toString().padStart(2,'0')}`;
         }, 1000);
 
-        // Bitrate diset 400 kbps agar file durasi panjang tetap ringan dikirim ke GAS
         const options = { mimeType: 'video/webm', videoBitsPerSecond: 800000 };
 
         try {
@@ -215,6 +223,7 @@
     
     tx.oncomplete = () => {
       resetFormFormulir();
+      updateStatusAntreanRealtime();
       prosesAntreanUpload();
     };
   }
@@ -229,8 +238,27 @@
     document.getElementById('btnSaveQueue').disabled = true;
   }
 
-  // --- LOGIKA UPLOAD BG (TANPA AUTO REPEAT 5 DETIK) ---
+  // --- LOGIKA UPLOAD & PROGRES BAR REALTIME ---
   let isUploading = false;
+
+  function hitungSisaAntrean(callback) {
+    if (!db) return callback(0);
+    const tx = db.transaction("queue", "readonly");
+    const countReq = tx.objectStore("queue").count();
+    countReq.onsuccess = () => callback(countReq.result);
+  }
+
+  function updateStatusAntreanRealtime() {
+    if (isUploading) return;
+    hitungSisaAntrean(total => {
+      if (total === 0) {
+        updateQueueWidget("Antrean: 0 | Standby (Selesai)");
+        setProgressBar(0, false);
+      } else {
+        updateQueueWidget(`Antrean: ${total} paket tersimpan | Menunggu upload...`);
+      }
+    });
+  }
 
   function prosesAntreanUpload() {
     if (isUploading || !db) return;
@@ -242,12 +270,12 @@
     getReq.onsuccess = e => {
       const cursor = e.target.result;
       if (cursor) {
-        hitungSisaAntrean(count => {
-          updateQueueWidget(`Antrean: ${count} | Uploading Resi: ${cursor.value.resi}...`);
-          uploadDataKeGAS(cursor.value, cursor.key);
+        hitungSisaAntrean(totalCount => {
+          uploadDataKeGAS(cursor.value, cursor.key, totalCount);
         });
       } else {
         updateQueueWidget("Antrean: 0 | Standby (Selesai)");
+        setProgressBar(0, false);
       }
     };
   }
@@ -255,60 +283,83 @@
   function paksaMulaiAntrean() {
     isUploading = false;
     updateQueueWidget("Memproses ulang antrean...");
+    setProgressBar(0, false);
     setTimeout(prosesAntreanUpload, 500);
   }
 
-  function hitungSisaAntrean(callback) {
-    const tx = db.transaction("queue", "readonly");
-    const countReq = tx.objectStore("queue").count();
-    countReq.onsuccess = () => callback(countReq.result);
-  }
-
-  function uploadDataKeGAS(item, idDB) {
+  function uploadDataKeGAS(item, idDB, sisaTotal) {
     isUploading = true;
+    setProgressBar(0, true);
 
-    // Timeout longgar 3 menit (180.000 ms)
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => {
-      controller.abort();
-    }, 180000);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", GAS_URL, true);
+    xhr.timeout = 180000; // Timeout 3 menit
 
-    fetch(GAS_URL, { 
-      method: "POST", 
-      body: JSON.stringify({ resi: item.resi, fotoSebelum: item.fotoSebelum, videoPacking: item.videoPacking, fotoSesudah: item.fotoSesudah }),
-      signal: controller.signal
-    })
-    .then(r => r.json())
-    .then(r => {
-      clearTimeout(timeoutId);
-      if (r.status === "success") {
-        const tx = db.transaction("queue", "readwrite");
-        tx.objectStore("queue").delete(idDB);
-        tx.oncomplete = () => {
-          updateQueueWidget(`✅ Resi ${item.resi} Berhasil! Memproses paket berikutnya...`);
-          setTimeout(() => {
-            isUploading = false;
-            prosesAntreanUpload();
-          }, 2000);
-        };
-      } else {
-        penangananUploadGagal(item.resi, "Gagal dari server");
+    // Progres Upload Realtime (%)
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable) {
+        const percent = Math.round((e.loaded / e.total) * 100);
+        updateQueueWidget(`Antrean: ${sisaTotal} paket | Mengunggah Resi ${item.resi} (${percent}%)`);
+        setProgressBar(percent, true);
       }
-    })
-    .catch(err => {
-      clearTimeout(timeoutId);
-      penangananUploadGagal(item.resi, err.name === 'AbortError' ? 'Timeout 3 Menit' : 'Koneksi Terputus');
+    };
+
+    xhr.onload = () => {
+      if (xhr.status === 200) {
+        try {
+          const r = JSON.parse(xhr.responseText);
+          if (r.status === "success") {
+            const tx = db.transaction("queue", "readwrite");
+            tx.objectStore("queue").delete(idDB);
+            tx.oncomplete = () => {
+              updateQueueWidget(`✅ Resi ${item.resi} Berhasil! Memproses berikutnya...`);
+              setProgressBar(100, true);
+              setTimeout(() => {
+                isUploading = false;
+                prosesAntreanUpload();
+              }, 1500);
+            };
+          } else {
+            penangananUploadGagal(item.resi, "Respon Error Server");
+          }
+        } catch (err) {
+          penangananUploadGagal(item.resi, "Respon JSON tidak valid");
+        }
+      } else {
+        penangananUploadGagal(item.resi, `Server HTTP ${xhr.status}`);
+      }
+    };
+
+    xhr.onerror = () => penangananUploadGagal(item.resi, "Koneksi Terputus");
+    xhr.ontimeout = () => penangananUploadGagal(item.resi, "Timeout 3 Menit");
+
+    const payload = JSON.stringify({ 
+      resi: item.resi, 
+      fotoSebelum: item.fotoSebelum, 
+      videoPacking: item.videoPacking, 
+      fotoSesudah: item.fotoSesudah 
     });
+
+    xhr.send(payload);
   }
 
-  // PENANGANAN GAGAL: MURNI PAUSE & TUNGGU TOMBOL MANUAL
   function penangananUploadGagal(resi, alasan) {
     isUploading = false;
-    updateQueueWidget(`⚠️ Gagal (${resi}) - ${alasan}. Tekan tombol merah untuk coba lagi.`);
+    setProgressBar(0, false);
+    hitungSisaAntrean(total => {
+      updateQueueWidget(`⚠️ Gagal (${resi}) - ${alasan} [Sisa ${total} antrean]. Tekan tombol merah.`);
+    });
   }
 
   function updateQueueWidget(teks) {
     document.getElementById('queue-status').innerText = teks;
+  }
+
+  function setProgressBar(percent, show) {
+    const container = document.getElementById('progressContainer');
+    const bar = document.getElementById('progressBar');
+    container.style.display = show ? 'block' : 'none';
+    bar.style.width = percent + '%';
   }
 </script>
 </body>
