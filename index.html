@@ -24,15 +24,15 @@
     .btn-red { background: #dc3545; }
     .btn-blue { background: #007bff; }
     
-    /* WIDGET ANTREAN UPLOAD FLOATING */
+    /* WIDGET ANTREAN UPLOAD FLOATING ATAS/BAWAH */
     #queue-widget {
       position: fixed; bottom: 0; left: 0; right: 0;
-      background: #343a40; color: white; padding: 10px 15px;
+      background: #343a40; color: white; padding: 12px 15px;
       font-size: 13px; font-weight: bold; z-index: 2000;
       display: flex; justify-content: space-between; align-items: center;
       box-shadow: 0 -2px 10px rgba(0,0,0,0.2);
     }
-    #queue-status { font-family: monospace; }
+    #queue-status { font-family: monospace; color: #ffc107; }
   </style>
 </head>
 <body>
@@ -68,14 +68,14 @@
     <button id="btnSaveQueue" class="btn-blue" style="background:#17a2b8; margin-top:10px; width:100%;" onclick="simpanKeAntrean()" disabled>📥 Simpan & Lanjut Paket Berikutnya</button>
   </div>
 
-  <!-- STICKY BOTTOM WIDGET ANTREAN UPLOAD -->
+  <!-- FLOATING WIDGET ANTREAN BACKGROUND UPLOAD -->
   <div id="queue-widget">
     <span>🔄 Upload Background:</span>
     <span id="queue-status">Antrean: 0 | Standby</span>
   </div>
 
 <script>
-  const GAS_URL = "PASTE_WEB_APP_URL_GAS_DI_SINI"; // <-- GANTI INI DENGAN URL GAS KAMU
+  const GAS_URL = "https://script.google.com/macros/s/AKfycbyzXvNdJ4grCNrXIU-YG5gYCK0pd-jYIxvvnCbwHfXrZScnc7OoXc_v_ca5uBF16KQ/exec"; // <-- GANTI DENGAN URL GAS KAMU
   let fotoSebelum = "", videoPacking = "", fotoSesudah = "", isRecording = false;
   let mediaRecorder, recordedChunks = [], seconds = 0, timerInterval;
   let canvasStream, videoCanvas, canvasCtx;
@@ -91,7 +91,7 @@
   };
   dbRequest.onsuccess = e => {
     db = e.target.result;
-    prosesAntreanUpload(); // Mulai proses antrean jika ada sisa saat app dibuka
+    prosesAntreanUpload(); 
   };
 
   async function initCamera() {
@@ -207,7 +207,7 @@
     else { fotoSesudah = captureFrame(); document.getElementById('statSesudah').innerText = "Foto Sesudah: ✅"; }
   }
 
-  // --- MENYIMPAN KE ANTREAN & RESET FORM INSTAN ---
+  // --- LOGIKA UPLOAD BACKGROUND & RESET FORM INSTAN ---
   function simpanKeAntrean() {
     const resi = document.getElementById('inputResi').value.trim();
     if (!resi || !fotoSebelum || !videoPacking || !fotoSesudah) return alert("Pastikan semua data sudah terisi!");
@@ -233,7 +233,6 @@
     document.getElementById('btnSaveQueue').disabled = true;
   }
 
-  // --- SCRIPT PROSES BACKGROUND UPLOAD ---
   let isUploading = false;
 
   function prosesAntreanUpload() {
@@ -246,13 +245,12 @@
     getReq.onsuccess = e => {
       const cursor = e.target.result;
       if (cursor) {
-        const totalItems = 1; // Akan diupdate dari count
         hitungSisaAntrean(count => {
-          updateQueueWidget(`Antrean: ${count} | Memproses Resi: ${cursor.value.resi}...`);
+          updateQueueWidget(`Antrean: ${count} | Uploading Resi: ${cursor.value.resi}...`);
           uploadDataKeGAS(cursor.value, cursor.key);
         });
       } else {
-        updateQueueWidget("Antrean: 0 | Standby (Semua Ter-upload)");
+        updateQueueWidget("Antrean: 0 | Standby (Selesai)");
       }
     };
   }
@@ -273,23 +271,22 @@
     .then(r => r.json())
     .then(r => {
       if (r.status === "success") {
-        // Hapus dari antrean lokal jika sukses
         const tx = db.transaction("queue", "readwrite");
         tx.objectStore("queue").delete(idDB);
         tx.oncomplete = () => {
           isUploading = false;
-          prosesAntreanUpload(); // Lanjut ke antrean berikutnya
+          prosesAntreanUpload(); 
         };
       } else {
         isUploading = false;
-        updateQueueWidget(`❌ Gagal Upload (${item.resi}). Mencoba lagi nanti...`);
-        setTimeout(prosesAntreanUpload, 5000); // Coba lagi setelah 5 detik
+        updateQueueWidget(`❌ Gagal (${item.resi}). Mencoba lagi...`);
+        setTimeout(prosesAntreanUpload, 4000);
       }
     })
     .catch(err => {
       isUploading = false;
-      updateQueueWidget(`⚠️ Jaringan Terputus (${item.resi}). Menunggu koneksi...`);
-      setTimeout(prosesAntreanUpload, 7000); // Coba lagi setelah 7 detik
+      updateQueueWidget(`⚠️ Koneksi terputus. Menunggu...`);
+      setTimeout(prosesAntreanUpload, 6000);
     });
   }
 
@@ -298,5 +295,4 @@
   }
 </script>
 </body>
-  </html>
-  
+</html>
