@@ -156,7 +156,7 @@
         }, 1000);
 
         // Bitrate diset 400 kbps agar file durasi panjang tetap ringan dikirim ke GAS
-        const options = { mimeType: 'video/webm', videoBitsPerSecond: 400000 };
+        const options = { mimeType: 'video/webm', videoBitsPerSecond: 800000 };
 
         try {
           mediaRecorder = new MediaRecorder(canvasStream, options);
