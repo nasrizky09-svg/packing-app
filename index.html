@@ -122,19 +122,15 @@
     });
   }
 
-  function toggleRecord() {
+    function toggleRecord() {
     const btn = document.getElementById('btnRecord');
     const timerDiv = document.getElementById('timer');
     const videoElement = document.getElementById('preview');
 
     if (!isRecording) {
       recordedChunks = []; seconds = 0;
-      timerDiv.style.display = 'block'; timerDiv.innerText = "00:00";
-      timerInterval = setInterval(() => {
-        seconds++;
-        timerDiv.innerText = `${Math.floor(seconds/60).toString().padStart(2,'0')}:${(seconds%60).toString().padStart(2,'0')}`;
-      }, 1000);
       
+      // 1. SETUP CANVAS 720p
       videoCanvas = document.createElement('canvas');
       videoCanvas.width = 720;
       videoCanvas.height = 1280;
@@ -161,24 +157,41 @@
         requestAnimationFrame(drawVideoToCanvas);
       }
       
-      canvasStream = videoCanvas.captureStream(30);
+      canvasStream = videoCanvas.captureStream(30); // 30 FPS
+      isRecording = true; // Set flag aktif untuk memicu loop canvas
       requestAnimationFrame(drawVideoToCanvas);
 
-      const options = { mimeType: 'video/webm', videoBitsPerSecond: 800000 };
+      // 2. WARM-UP JEDA 250ms AGAR CANVAS STABIL SEBELUM PEREKAMAN DIMULAI
+      setTimeout(() => {
+        timerDiv.style.display = 'block'; 
+        timerDiv.innerText = "00:00";
+        timerInterval = setInterval(() => {
+          seconds++;
+          timerDiv.innerText = `${Math.floor(seconds/60).toString().padStart(2,'0')}:${(seconds%60).toString().padStart(2,'0')}`;
+        }, 1000);
 
-      try {
-        mediaRecorder = new MediaRecorder(canvasStream, options);
-      } catch (e) {
-        mediaRecorder = new MediaRecorder(canvasStream);
-      }
+        const options = { mimeType: 'video/webm', videoBitsPerSecond: 800000 };
 
-      mediaRecorder.ondataavailable = e => { if(e.data.size > 0) recordedChunks.push(e.data); };
-      mediaRecorder.start();
-      isRecording = true; btn.innerText = "Stop";
+        try {
+          mediaRecorder = new MediaRecorder(canvasStream, options);
+        } catch (e) {
+          mediaRecorder = new MediaRecorder(canvasStream);
+        }
+
+        mediaRecorder.ondataavailable = e => { if(e.data.size > 0) recordedChunks.push(e.data); };
+        
+        // Memulai rekaman dengan timeslice 100ms agar pengolahan frame awal mulus
+        mediaRecorder.start(100); 
+        btn.innerText = "Stop";
+      }, 250);
+
     } else {
       isRecording = false;
-      mediaRecorder.stop();
-      clearInterval(timerInterval); timerDiv.style.display = 'none';
+      if (mediaRecorder && mediaRecorder.state !== "inactive") {
+        mediaRecorder.stop();
+      }
+      clearInterval(timerInterval); 
+      timerDiv.style.display = 'none';
       
       mediaRecorder.onstop = () => {
         const blob = new Blob(recordedChunks, { type: 'video/webm' });
@@ -192,6 +205,7 @@
       btn.innerText = "Rekam";
     }
   }
+
 
   function captureFrame() {
     const v = document.getElementById('preview');
