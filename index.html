@@ -27,16 +27,41 @@
     .progress-container { width: 100%; background-color: #444; border-radius: 4px; height: 8px; overflow: hidden; display: none; }
     .progress-bar { width: 0%; height: 100%; background-color: #28a745; transition: width 0.2s ease; }
 
-    /* Modal Overlay Upload Langsung (Durasi > 6 Mnt) */
+    /* Modal Overlay Upload Langsung (Durasi >= 8 Menit) */
     #directUploadModal { display: none; position: fixed; top:0; left:0; right:0; bottom:0; background: rgba(0,0,0,0.85); color: #fff; z-index: 10000; flex-direction: column; justify-content: center; align-items: center; padding: 20px; text-align: center; }
     .modal-box { background: #333; padding: 25px; border-radius: 10px; width: 90%; max-width: 400px; }
     .modal-bar-container { width: 100%; background: #555; height: 12px; border-radius: 6px; overflow: hidden; margin: 15px 0; }
     .modal-bar { width: 0%; height: 100%; background: #007bff; transition: width 0.2s ease; }
+
+
+    /* Login PIN dan tombol keluar */
+    #loginOverlay { position: fixed; inset: 0; z-index: 20000; display: none; justify-content: center; align-items: center; padding: 20px; box-sizing: border-box; background: rgba(15, 23, 42, 0.88); }
+    .login-card { width: 100%; max-width: 360px; box-sizing: border-box; padding: 24px; background: #fff; color: #222; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.25); }
+    .login-card h2 { margin: 0 0 8px; }
+    .login-card p { color: #555; font-size: 14px; line-height: 1.5; }
+    #inputPin { width: 100%; box-sizing: border-box; padding: 14px; font-size: 24px; letter-spacing: 8px; text-align: center; border: 1px solid #bbb; border-radius: 6px; margin: 10px 0; }
+    #loginMessage { min-height: 20px; font-size: 13px; color: #c82333; text-align: center; }
+    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; }
+    #btnLogout { border: 0; border-radius: 5px; padding: 7px 12px; background: #6c757d; color: white; font-weight: bold; cursor: pointer; }
+
   </style>
 </head>
 <body>
 
+
+<!-- Login PIN: autentikasi tetap diperiksa ulang oleh backend saat upload -->
+<div id="loginOverlay">
+  <form class="login-card" onsubmit="event.preventDefault(); loginAplikasi();">
+    <h2>Dokumentasi Packing</h2>
+    <p>Masukkan PIN 6 digit untuk membuka aplikasi.</p>
+    <input id="inputPin" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="current-password" placeholder="••••••" aria-label="PIN 6 digit" required>
+    <div id="loginMessage" role="status" aria-live="polite"></div>
+    <button class="btn btn-blue" id="btnLogin" type="submit">Masuk</button>
+  </form>
+</div>
+
 <div class="container">
+  <div class="topbar"><strong>Dokumentasi Packing</strong><button id="btnLogout" onclick="logoutAplikasi()">Keluar</button></div>
   <video id="preview" autoplay playsinline muted></video>
   <div id="timer">00:00</div>
   <div id="reader"></div>
@@ -82,7 +107,7 @@
 <div id="directUploadModal">
   <div class="modal-box">
     <h3 style="margin-top:0;">⏳ Mengunggah Video Panjang</h3>
-    <p id="modalText">Durasi video ≥ 6 menit. Mengirim langsung ke Drive...</p>
+    <p id="modalText">Durasi video ≥ 8 menit. Mengirim langsung ke Drive...</p>
     <div class="modal-bar-container">
       <div class="modal-bar" id="modalProgressBar"></div>
     </div>
@@ -93,6 +118,149 @@
 <script>
   // WAJIB ISI URL WEB APP GAS KAMU (BERAKHIRAN /exec)
   const GAS_URL = "https://script.google.com/macros/s/AKfycbzHqPHlpRe1gEb6mF53sVGUEQ3XTTPkHac1cpRTs5DdHVHk0TCDChwEJDeBatmjS4p8/exec";
+
+
+  // --- LOGIN PIN DAN SESI ---
+  // Token disimpan hanya di browser/perangkat ini dan berlaku 7 hari.
+  const TOKEN_KEY = "packing_session_token";
+  const EXPIRY_KEY = "packing_session_expiry";
+  const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
+  let pendingDirectItem = null;
+  let scannerAktif = null;
+
+  function ambilToken() {
+    const token = localStorage.getItem(TOKEN_KEY);
+    const expiry = Number(localStorage.getItem(EXPIRY_KEY) || 0);
+    if (!token || !expiry || Date.now() >= expiry) {
+      hapusSesiLokal();
+      return "";
+    }
+    return token;
+  }
+
+  function hapusSesiLokal() {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(EXPIRY_KEY);
+  }
+
+  function tampilkanLogin(pesan) {
+    document.getElementById("loginOverlay").style.display = "flex";
+    document.getElementById("loginMessage").innerText = pesan || "";
+    document.getElementById("inputPin").focus();
+  }
+
+  function sembunyikanLogin() {
+    document.getElementById("loginOverlay").style.display = "none";
+    document.getElementById("loginMessage").innerText = "";
+  }
+
+  function sesiTidakValid(response) {
+    return !!response && (response.code === "SESSION_INVALID" || response.error === "SESSION_INVALID");
+  }
+
+  async function loginAplikasi() {
+    const pinInput = document.getElementById("inputPin");
+    const pin = pinInput.value.trim();
+    const tombol = document.getElementById("btnLogin");
+    const pesan = document.getElementById("loginMessage");
+
+    if (!/^\d{6}$/.test(pin)) {
+      pesan.innerText = "PIN harus terdiri dari 6 angka.";
+      pinInput.focus();
+      return;
+    }
+
+    tombol.disabled = true;
+    tombol.innerText = "Memeriksa...";
+    pesan.innerText = "Menghubungkan ke server...";
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    try {
+      const response = await fetch(GAS_URL, {
+        method: "POST",
+        body: JSON.stringify({ action: "login", pin: pin }),
+        signal: controller.signal
+      });
+      const hasil = await response.json();
+      const tokenBaru = hasil.token || hasil.sessionToken || (hasil.data && hasil.data.token);
+
+      if (hasil.status === "success" && tokenBaru) {
+        localStorage.setItem(TOKEN_KEY, tokenBaru);
+        localStorage.setItem(EXPIRY_KEY, String(Date.now() + SESSION_DURATION_MS));
+        pinInput.value = "";
+        sembunyikanLogin();
+        await mulaiSetelahLogin();
+      } else {
+        pesan.innerText = hasil.message || "PIN salah atau login belum berhasil.";
+      }
+    } catch (error) {
+      pesan.innerText = error.name === "AbortError"
+        ? "Koneksi terlalu lama. Coba lagi."
+        : "Tidak dapat terhubung ke server. Periksa koneksi internet.";
+    } finally {
+      clearTimeout(timeoutId);
+      tombol.disabled = false;
+      tombol.innerText = "Masuk";
+    }
+  }
+
+  async function logoutAplikasi() {
+    const token = ambilToken();
+    // Hapus sesi di perangkat ini segera. Permintaan logout server berjalan terpisah.
+    hapusSesiLokal();
+    hentikanKamera();
+    tampilkanLogin("Kamu sudah keluar. Masukkan PIN untuk masuk kembali.");
+    if (token) {
+      fetch(GAS_URL, {
+        method: "POST",
+        body: JSON.stringify({ action: "logout", token: token })
+      }).catch(() => {});
+    }
+  }
+
+  function tanganiSesiTidakValid() {
+    hapusSesiLokal();
+    isUploading = false;
+    hentikanKamera();
+    updateQueueWidget("Sesi berakhir. Masuk kembali untuk melanjutkan upload.");
+    tampilkanLogin("Sesi sudah berakhir. Masukkan PIN kembali.");
+  }
+
+  function hentikanKamera() {
+    if (scannerAktif) {
+      try {
+        scannerAktif.stop().catch(() => {});
+      } catch (e) {}
+      scannerAktif = null;
+      document.getElementById("reader").style.display = "none";
+    }
+    const preview = document.getElementById("preview");
+    if (preview && preview.srcObject) {
+      preview.srcObject.getTracks().forEach(track => track.stop());
+      preview.srcObject = null;
+    }
+  }
+
+  async function mulaiSetelahLogin() {
+    await initCamera();
+    if (pendingDirectItem) {
+      uploadLangsungMode(pendingDirectItem);
+      return;
+    }
+    if (db) prosesAntreanUpload();
+  }
+
+  async function mulaiAplikasi() {
+    if (ambilToken()) {
+      sembunyikanLogin();
+      await mulaiSetelahLogin();
+    } else {
+      tampilkanLogin("Masukkan PIN untuk menggunakan aplikasi.");
+      updateQueueWidget("Login diperlukan untuk memulai upload.");
+    }
+  }
 
   let fotoSebelum = "", videoPacking = "", fotoSesudah = "", isRecording = false;
   let mediaRecorder, recordedChunks = [], seconds = 0, timerInterval;
@@ -123,17 +291,18 @@
       document.getElementById('preview').srcObject = stream;
     } catch (e) { alert("Kamera gagal: " + e.message); }
   }
-  window.onload = initCamera;
+  window.onload = mulaiAplikasi;
 
   function startScanner() {
     document.getElementById('reader').style.display = 'block';
     const scanner = new Html5Qrcode("reader");
+    scannerAktif = scanner;
     scanner.start({ facingMode: "environment" }, { 
       fps: 10, qrbox: 250, 
       formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE, Html5QrcodeSupportedFormats.CODE_128] 
     }, (t) => {
       document.getElementById('inputResi').value = t;
-      scanner.stop().then(() => document.getElementById('reader').style.display = 'none');
+      scanner.stop().then(() => { scannerAktif = null; document.getElementById('reader').style.display = 'none'; });
     });
   }
 
@@ -233,17 +402,18 @@
   }
 
   function simpanKeAntrean() {
+    if (!ambilToken()) { tanganiSesiTidakValid(); return; }
     const resi = document.getElementById('inputResi').value.trim();
     if (!resi || !fotoSebelum || !videoPacking || !fotoSesudah) return alert("Pastikan semua data terisi!");
 
-    const dataItem = { resi, fotoSebelum, videoPacking, fotoSesudah, timestamp: new Date().getTime() };
+    const dataItem = { resi, fotoSebelum, videoPacking, fotoSesudah, timestamp: new Date().getTime(), durasiVideo: lastVideoDuration };
 
-    // AMBANG BATASE DITETAPKAN 360 DETIK (6 MENIT)
+    // AMBANG UPLOAD LANGSUNG: 480 DETIK (8 MENIT)
     if (lastVideoDuration >= 480) {
-      // JIKA DURASI >= 6 MENIT: UPLOAD LANGSUNG (DIRECT MODE)
+      // DURASI >= 8 MENIT: UPLOAD LANGSUNG (DIRECT MODE)
       uploadLangsungMode(dataItem);
     } else {
-      // JIKA DURASI < 6 MENIT: MASUK ANTREAN INDEXEDDB (BACKGROUND MODE)
+      // DURASI < 8 MENIT: MASUK ANTREAN INDEXEDDB (BACKGROUND MODE)
       const tx = db.transaction("queue", "readwrite");
       tx.objectStore("queue").add(dataItem);
       
@@ -257,12 +427,16 @@
 
   // --- MODUS 1: UPLOAD LANGSUNG UNTUK DURASI PANJANG (DIRECT) ---
   function uploadLangsungMode(item) {
+    const token = ambilToken();
+    if (!token) { pendingDirectItem = item; tanganiSesiTidakValid(); return; }
+    pendingDirectItem = item;
     const modal = document.getElementById('directUploadModal');
     const modalText = document.getElementById('modalText');
     const modalBar = document.getElementById('modalProgressBar');
     const modalPercent = document.getElementById('modalPercent');
 
-    modalText.innerText = `Resi: ${item.resi}\nDurasi: ${Math.floor(lastVideoDuration/60)} mnt. Mengirim langsung ke Drive...`;
+    const durasi = Number(item.durasiVideo || lastVideoDuration || 0);
+    modalText.innerText = `Resi: ${item.resi}\nDurasi: ${Math.floor(durasi/60)} mnt. Mengirim langsung ke Drive...`;
     modalBar.style.width = "0%";
     modalPercent.innerText = "0%";
     modal.style.display = "flex";
@@ -284,8 +458,13 @@
       if (xhr.status === 200) {
         try {
           const r = JSON.parse(xhr.responseText);
+          if (sesiTidakValid(r)) {
+            tanganiSesiTidakValid();
+            return;
+          }
           if (r.status === "success") {
             alert(`✅ Resi ${item.resi} (Video Panjang) Berhasil Terunggah!`);
+            pendingDirectItem = null;
             resetFormFormulir();
           } else {
             alert(`❌ Upload Gagal: Server mengembalikan error.`);
@@ -309,6 +488,8 @@
     };
 
     xhr.send(JSON.stringify({ 
+      action: "upload",
+      token: token,
       resi: item.resi, 
       fotoSebelum: item.fotoSebelum, 
       videoPacking: item.videoPacking, 
@@ -317,6 +498,7 @@
   }
 
   function resetFormFormulir() {
+    pendingDirectItem = null;
     fotoSebelum = ""; videoPacking = ""; fotoSesudah = ""; lastVideoDuration = 0;
     document.getElementById('inputResi').value = "";
     document.getElementById('statSebelum').innerText = "Foto Sebelum: ❌";
@@ -326,7 +508,7 @@
     document.getElementById('btnSaveQueue').disabled = true;
   }
 
-  // --- MODUS 2: ANTREAN INDEXEDDB BACKGROUND (DURASI SINKAT < 6 MNT) ---
+  // --- MODUS 2: ANTREAN INDEXEDDB BACKGROUND (DURASI DI BAWAH 8 MENIT) ---
   let isUploading = false;
 
   function hitungSisaAntrean(callback) {
@@ -349,6 +531,10 @@
   }
 
   function prosesAntreanUpload() {
+    if (!ambilToken()) {
+      updateQueueWidget("Login diperlukan untuk mengunggah antrean.");
+      return;
+    }
     if (isUploading || !db) return;
 
     const tx = db.transaction("queue", "readonly");
@@ -376,6 +562,8 @@
   }
 
 function uploadDataKeGAS(item, idDB, sisaTotal) {
+    const token = ambilToken();
+    if (!token) { tanganiSesiTidakValid(); return; }
     isUploading = true;
     updateQueueWidget(`Antrean: ${sisaTotal} paket | Mengunggah Resi ${item.resi}...`);
 
@@ -385,6 +573,8 @@ function uploadDataKeGAS(item, idDB, sisaTotal) {
     fetch(GAS_URL, {
       method: "POST",
       body: JSON.stringify({ 
+        action: "upload",
+        token: token,
         resi: item.resi, 
         fotoSebelum: item.fotoSebelum, 
         videoPacking: item.videoPacking, 
@@ -395,6 +585,11 @@ function uploadDataKeGAS(item, idDB, sisaTotal) {
     .then(r => r.json())
     .then(r => {
       clearTimeout(timeoutId);
+      if (sesiTidakValid(r)) {
+        isUploading = false;
+        tanganiSesiTidakValid();
+        return;
+      }
       if (r.status === "success") {
         const tx = db.transaction("queue", "readwrite");
         tx.objectStore("queue").delete(idDB);
