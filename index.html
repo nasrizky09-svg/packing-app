@@ -164,7 +164,7 @@
         requestAnimationFrame(drawVideoToCanvas);
       }
       
-      canvasStream = videoCanvas.captureStream(15); // 15 FPS hemat ukuran file
+      canvasStream = videoCanvas.captureStream(24); // 15 FPS hemat ukuran file
       isRecording = true;
       requestAnimationFrame(drawVideoToCanvas);
 
@@ -176,7 +176,7 @@
           timerDiv.innerText = `${Math.floor(seconds/60).toString().padStart(2,'0')}:${(seconds%60).toString().padStart(2,'0')}`;
         }, 1000);
 
-        const options = { mimeType: 'video/webm', videoBitsPerSecond: 300000 }; // 300 kbps
+        const options = { mimeType: 'video/webm', videoBitsPerSecond: 600000 }; // 300 kbps
 
         try {
           mediaRecorder = new MediaRecorder(canvasStream, options);
